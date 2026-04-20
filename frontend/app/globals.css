@@ -1,0 +1,557 @@
+:root {
+  /* Colors - Light (exact production palette) */
+  --color-bg-primary: #f7f9fc;
+  --color-bg-secondary: #ffffff;
+  --color-bg-sidebar: #ffffff;
+  --color-bg-sidebar-hover: #f1f5f9;
+  --color-bg-sidebar-active: #e2e8f0;
+  --color-bg-hover: #f1f5f9;
+  --color-bg-active: #e2e8f0;
+  --color-bg-input: #ffffff;
+  --color-bg-message-user: linear-gradient(135deg, #eef4fb, #e3ecf7);
+  --color-bg-message-user-solid: #eef4fb;
+  --color-border-message-user: #d0dff0;
+  --color-accent-user: #4a90d9;
+  --color-bg-message-assistant: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-suggestion: #f8fafc;
+  --color-bg-suggestion-hover: #f1f5f9;
+  --color-bg-citation: #fafbfd;
+  --color-bg-modal-overlay: rgba(0, 0, 0, 0.4);
+
+  --color-text-primary: #2d3748;
+  --color-text-secondary: #4a5568;
+  --color-text-muted: #718096;
+  --color-text-inverse: #ffffff;
+  --color-text-link: #1e3a5f;
+  --color-text-sidebar: #4a5568;
+  --color-text-sidebar-bright: #2d3748;
+  --color-text-sidebar-muted: #718096;
+
+  --color-border: #e2e8f0;
+  --color-border-light: #edf2f7;
+  --color-border-sidebar: #e2e8f0;
+  --color-accent: #1e3a5f;
+  --color-accent-hover: #142942;
+  --color-accent-light: #eff6ff;
+  --color-accent-orange: #f26522;
+  --color-accent-orange-hover: #d9551a;
+  --color-bg-header-active: #1e3a5f;
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-success-light: #f0fdf4;
+  --color-warning: #eab308;
+
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  --spacing-3xl: 64px;
+
+  /* Border radius — matched to production (Tailwind defaults) */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* Typography — Inter first, matching production */
+  --font-sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-size-2xs: 0.625rem;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 0.875rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+
+  /* Shadows — exact Tailwind defaults */
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+
+  /* Layout */
+  --sidebar-width: 300px;
+  --header-height: 56px;
+  --chat-max-width: 1100px;
+
+  /* Transitions — matched to production cubic-bezier */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="dark"] {
+  /*
+   * Dark mode — neutral gray palette (like ChatGPT/Claude)
+   * NOT blue-tinted. Clean gray layers with clear separation.
+   * Sidebar: #202123 (ChatGPT sidebar)
+   * Main: #2f2f2f (ChatGPT main)
+   * Surface: #3a3a3a (elevated cards)
+   * Borders: #4a4a4a (clearly visible)
+   */
+  --color-bg-primary: #2f2f2f;
+  --color-bg-secondary: #3a3a3a;
+  --color-bg-sidebar: #202123;
+  --color-bg-sidebar-hover: #343541;
+  --color-bg-sidebar-active: #40414f;
+  --color-bg-hover: #3a3a3a;
+  --color-bg-active: #444654;
+  --color-bg-input: #3a3a3a;
+  --color-bg-message-user: linear-gradient(135deg, #2b3a52, #263248);
+  --color-bg-message-user-solid: #2b3a52;
+  --color-border-message-user: #3d5070;
+  --color-accent-user: #6db3f8;
+  --color-bg-message-assistant: #3a3a3a;
+  --color-bg-card: #3a3a3a;
+  --color-bg-suggestion: #343541;
+  --color-bg-suggestion-hover: #40414f;
+  --color-bg-citation: #2f2f2f;
+  --color-bg-modal-overlay: rgba(0, 0, 0, 0.6);
+
+  --color-text-primary: #ececf1;
+  --color-text-secondary: #c5c5d2;
+  --color-text-muted: #8e8ea0;
+  --color-text-inverse: #ffffff;
+  --color-text-link: #7cb3f4;
+  --color-text-sidebar: #c5c5d2;
+  --color-text-sidebar-bright: #ececf1;
+  --color-text-sidebar-muted: #8e8ea0;
+
+  --color-border: #4a4a4a;
+  --color-border-light: #3a3a3a;
+  --color-border-sidebar: #4a4a4a;
+  --color-accent: #5b9cf6;
+  --color-accent-hover: #4a8df5;
+  --color-accent-light: rgba(91, 156, 246, 0.15);
+  --color-accent-orange: #f97316;
+  --color-accent-orange-hover: #ea580c;
+  --color-bg-header-active: #1e3a5f;
+  --color-success-light: #1a3a24;
+
+  /* Status badge dark mode */
+  --status-online-bg: rgba(34, 197, 94, 0.15);
+  --status-online-border: rgba(34, 197, 94, 0.3);
+  --status-online-text: #4ade80;
+  --status-offline-dot: #8e8ea0;
+  --status-offline-bg: rgba(142, 142, 160, 0.1);
+  --status-offline-border: rgba(142, 142, 160, 0.2);
+  --status-offline-text: #8e8ea0;
+  --status-error-bg: rgba(239, 68, 68, 0.12);
+  --status-error-border: rgba(239, 68, 68, 0.25);
+  --status-error-text: #f87171;
+
+  --shadow-xs: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 2px 4px 0 rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.35), 0 2px 4px -2px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 10px 20px -3px rgba(0, 0, 0, 0.35), 0 4px 8px -4px rgba(0, 0, 0, 0.25);
+  --shadow-xl: 0 20px 30px -5px rgba(0, 0, 0, 0.35), 0 8px 12px -6px rgba(0, 0, 0, 0.25);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+/* Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--color-text-link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  border: none;
+  outline: none;
+}
+
+/* Scrollbar — production uses 6px width */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #565869;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #6b6d7b;
+}
+
+/* Sidebar scrollbar */
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.22);
+}
+[data-theme="dark"] .sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+}
+[data-theme="dark"] .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Utility classes */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes messageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes typing {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--color-border-light) 25%, var(--color-bg-hover) 50%, var(--color-border-light) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* Watermark for main area — production uses 0.06 light */
+.main-watermark {
+  position: relative;
+}
+.main-watermark::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 720px;
+  height: 720px;
+  background-image: url("/pseg-logo.svg");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  opacity: 0.06;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+
+[data-theme="dark"] .main-watermark::before {
+  opacity: 0.08;
+  filter: invert(0.85) brightness(1.2);
+}
+
+/* Focus-visible — keyboard-only focus ring */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+textarea:focus-visible,
+input:focus-visible {
+  outline: none;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* Toast notification */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  pointer-events: none;
+}
+
+.toast {
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.25s ease, fadeOut 0.3s ease 3.2s forwards;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.toast-error {
+  background: var(--color-danger);
+  color: #ffffff;
+}
+
+.toast-success {
+  background: var(--color-success);
+  color: #ffffff;
+}
+
+@keyframes fadeOut {
+  to { opacity: 0; transform: translateY(4px); }
+}
+
+/* Chat input focus glow — production uses navy/10 ring */
+.chat-input-container:focus-within {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.08) !important;
+}
+
+[data-theme="dark"] .chat-input-container:focus-within {
+  box-shadow: var(--shadow-sm), 0 0 0 3px rgba(45, 90, 135, 0.15) !important;
+}
+
+/* Citation panel collapse transition */
+.citation-items {
+  overflow: hidden;
+  transition: max-height var(--transition-slow), opacity var(--transition-normal);
+}
+
+.citation-items.collapsed {
+  max-height: 0 !important;
+  opacity: 0;
+}
+
+/* Dark mode: make PSEG logo visible on dark background */
+
+/* Dark mode specific enhancements */
+[data-theme="dark"] .chat-input-container {
+  border-color: #4a4a4a !important;
+  background: #3a3a3a !important;
+}
+
+[data-theme="dark"] .chat-input-container:focus-within {
+  border-color: #5b9cf6 !important;
+  box-shadow: 0 0 0 3px rgba(91, 156, 246, 0.2) !important;
+}
+
+/* Responsive: overlay sidebar on small screens */
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 280px;
+  }
+}
+
+/* Mobile sidebar overlay */
+.sidebar-overlay {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar-mobile {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    z-index: 100 !important;
+    height: 100vh !important;
+    padding: 0 !important;
+    width: var(--sidebar-width) !important;
+  }
+
+  .sidebar-mobile aside {
+    border-radius: 0 14px 14px 0 !important;
+  }
+
+  .sidebar-mobile-hidden {
+    transform: translateX(-100%);
+    pointer-events: none;
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 99;
+    animation: fadeIn 0.2s ease;
+  }
+}
+
+/* Mobile responsive */
+/* !important designators to override inline styles already present in the code */
+@media (max-width: 760px) {
+  /* Remove border-radius and margin so content fills the screen */
+  .main-content-area {
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Compact header */
+  .chat-header {
+    height: 48px !important;
+    padding: 0 var(--spacing-md) !important;
+  }
+
+  .chat-header-title {
+    font-size: 0.9rem !important;
+  }
+
+  /* Hide the subtitle -- wastes vertical space on mobile */
+  .chat-header-subtitle {
+    display: none !important;
+  }
+
+  /* Messages fill more width on small screens */
+  .chat-messages-inner {
+    padding:  var(--spacing-md) var(--spacing-sm) var(--spacing-sm) !important;
+  }
+
+  /* Chat input sticky at bottom */
+  .chat-input-container {
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* PDF viewer -- full screen instead of side panel */
+  .pdf-viewer-panel {
+    width: 100% !important;
+    min-width: unset !important;
+  }
+
+  .pdf-viewer-panel-backdrop {
+    display: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --sidebar-width: 100vw;
+  }
+
+  .chat-header {
+    height: 44px !important;
+    padding: 0 var(--spacing-sm) !important;
+  }
+
+  .chat-header-title {
+    font-size: 0.85rem !important;
+    max-width: 180px !important;
+  }
+
+  .chat-messages-inner {
+    padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm) !important;
+  }
+}
+
+/* Screen reader only utility */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}

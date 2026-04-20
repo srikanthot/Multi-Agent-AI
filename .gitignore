@@ -1,0 +1,34 @@
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+ 
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+ 
+# Environment files (each app has its own .env.example)
+.env
+.env.*
+!.env.example
+ 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+ 
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+ 
+# Logs
+*.log
+npm-debug.log*
+ 

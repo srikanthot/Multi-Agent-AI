@@ -1,0 +1,428 @@
+.pdf-viewer-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease-out;
+}
+ 
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+ 
+.pdf-viewer {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 90vw;
+    height: 90vh;
+    max-width: 1200px;
+    background: var(--color-bg-primary, #f5f5f5);
+    border-radius: 8px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    animation: slideIn 0.2s ease-out;
+    transition: box-shadow 0.15s ease;
+    will-change: transform;
+}
+ 
+/* Dragging the viewer */
+.pdf-viewer.is-dragging {
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    user-select: none;
+    cursor: grabbing;
+}
+ 
+.pdf-viewer.is-dragging .pdf-toolbar {
+    cursor: grabbing;
+}
+ 
+ 
+/**** Resizing the viewer ****/
+.pdf-viewer.is-resizing {
+    user-select: none;
+}
+ 
+/* Resize handles */
+.pdf-resize-handle {
+    position: absolute;
+    z-index: 100;
+    background: transparent;
+    transition: background-color 0.15s ease;
+}
+ 
+.pdf-resize-handle:hover {
+    background: rgba(0,120,255,0.15);
+}
+ 
+/* Edge handles */
+.pdf-resize-n {
+    top: 0;
+    left: 16px;
+    right: 16px;
+    height: 8px;
+    cursor: ns-resize;
+}
+ 
+.pdf-resize-s {
+    bottom: 0;
+    left: 16px;
+    right: 16px;
+    height: 8px;
+    cursor: ns-resize;
+}
+ 
+.pdf-resize-e {
+    top: 16px;
+    right: 0;
+    bottom: 16px;
+    height: 8px;
+    cursor: ew-resize;
+}
+ 
+.pdf-resize-w {
+    top: 10px;
+    left: 0;
+    bottom: 10px;
+    width: 6px;
+    cursor: ew-resize;
+}
+ 
+/* Corner handles */
+.pdf-resize-ne,
+.pdf-resize-nw,
+.pdf-resize-se,
+.pdf-resize-sw {
+    width: 16px;
+    height: 16px;
+}
+ 
+.pdf-resize-ne {
+    top: 0;
+    right: 0;
+    border-bottom-left-radius: 4px;
+    cursor: nesw-resize;
+}
+ 
+.pdf-resize-nw {
+    top: 0;
+    left: 0;
+    border-bottom-right-radius: 4px;
+    cursor: nesw-resize;
+}
+ 
+.pdf-resize-se {
+    bottom: 0;
+    right: 0;
+    border-top-left-radius: 4px;
+    cursor: nesw-resize;
+}
+ 
+.pdf-resize-se::after {
+    content: "";
+    position: absolute;
+    bottom: 3px;
+    right: 3px;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid rgba(0, 0, 0, 0.3);
+    border-bottom: 2px solid rgba(0, 0, 0, 0.3);
+}
+ 
+.pdf-resize-sw {
+    bottom: 0;
+    left: 0;
+    border-top-right-radius: 4px;
+    cursor: nesw-resize;
+}
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+ 
+.pdf-viewer.is-dragging {
+    box-shadow: 0 8px 32px rgba(255,230,0,0.4);
+    user-select: none;
+}
+ 
+/* Close button */
+.pdf-close-button {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 10;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--color-bg-primary, #fff);
+    color: var(--color-text-primary, #333);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: background-color 0.2s ease, transform 0.15s ease;
+}
+ 
+.pdf-close-button:hover {
+    background: var(--color-accent-hover, #e0e0e0);
+    color: var(--color-accent-orange-hover, #333);
+    transform: scale(1.1);
+}
+ 
+.pdf-close-button:focus {
+    outline: 2px solid var(--color-accent, #007bff);
+    outline-offset: 2px;
+}
+ 
+.pdf-close-button:focus-visible {
+    outline: 2px solid var(--color-accent, #007bff);
+    outline-offset: 2px;
+}
+ 
+/* Reset position button */
+.pdf-reset-position-button {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+    padding: 6px 12px;
+    border: 1px solid var(--color-border, #ddd);
+    border-radius: 6px;
+    background: var(--color-bg-primary, #fff);
+    color: var(--color-text-primary, #333);
+    font-size: 12px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: background-color 0.2s ease;
+}
+ 
+.pdf-reset-position-button:hover {
+    background: var(--color-accent-hover, #e0e0e0);
+    color: var(--color-accent-orange-hover, #333);
+}
+ 
+.pdf-reset-position-button:focus {
+    outline: 2px solid var(--color-accent, #007bff);
+    outline-offset: 2px;
+}
+ 
+.pdf-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px;
+    padding-right: 56px;
+    padding-left: 56px;
+    background: var(--color-bg-primary, #fff);
+    border-bottom: 1px solid var(--color-border, #ddd);
+    flex-shrink: 0;
+    cursor: grab;
+}
+ 
+.pdf-toolbar button {
+    padding: 8px 16px;
+    border: 1px solid var(--color-border, #ddd);
+    border-radius: 6px;
+    background: var(--color-bg-primary, #fff);
+    color: var(--color-text-primary, #333);
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+ 
+.pdf-toolbar button:hover:not(:disabled) {
+    background: var(--color-accent-hover, #e0e0e0);
+    color: var(--color-accent-orange-hover, #333);
+    border-color: var(--color-accent, #666);
+}
+ 
+.pdf-toolbar button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+ 
+.pdf-page-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--color-text-primary, #333);
+}
+ 
+.pdf-page-info input {
+    width: 50px;
+    padding: 6px 8px;
+    border: 1px solid var(--color-border, #ddd);
+    border-radius: 4px;
+    text-align: center;
+    font-size: 14px;
+}
+ 
+.pdf-page-info input:focus {
+    outline: 2px solid var(--color-accent, #007bff);
+    outline-offset: 1px;
+}
+ 
+.pdf-container {
+    flex: 1;
+    overflow: auto;
+    padding: 20px;
+    position: relative;
+}
+ 
+.pdf-container .react-pdf__Document {
+    width: fit-content;
+    min-width: min-content;
+    margin: 0 auto;
+}
+ 
+.pdf-canvas {
+    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+    background: #fff;
+}
+ 
+.pdf-text-layer {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    pointer-events: none;
+    overflow: hidden;
+}
+ 
+.pdf-text-item {
+    position: absolute;
+    white-space: nowrap;
+    color: transparent;
+    pointer-events: auto;
+    cursor: text;
+}
+ 
+.pdf-text-item::selection {
+    background: rgba(255, 230, 0, 0.5);
+}
+ 
+.pdf-text-item.highlighted {
+    background: rgba(255,230,0,0.5);
+    color:transparent;
+    border-radius: 2px;
+    padding: 0 2px;
+    margin: 0 -2px;
+}
+ 
+.pdf-viewer-loading {
+    display: flex;
+    justify-content: center;;
+    padding: 24px 40px;
+    font-size: 16px;
+    color: var(--color-text-muted, #666);
+}
+ 
+.pdf-viewer-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 40px;
+    font-size: 16px;
+    color: #dc3545;
+}
+ 
+.pdf-viewer-error {
+    color: #dc3545;
+}
+ 
+.pdf-highlight {
+    background: rgba(255,230,0,0.5);
+    padding: 0 2px;
+    border-radius: 2px;
+}
+ 
+/* Mobile styles */
+@media (max-width: 768px) {
+    .pdf-viewer-overlay {
+        padding: 0;
+    }
+ 
+    .pdf-viewer {
+        width: 100vw;
+        height: 100vh;
+        max-width: none;
+        border-radius: 0;
+    }
+ 
+    .pdf-toolbar {
+        gap: 8px;
+        padding: 10px;
+        padding-right: 48px;
+        padding-left: 48px;
+ 
+ 
+    }
+ 
+    .pdf-toolbar button {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+ 
+    .pdf-close-button {
+        top: 8px;
+        right: 8px;
+        width: 32px;
+        height: 32px;
+        font-size: 18px;
+    }
+ 
+    .pdf-reset-position-button {
+        top: 8px;
+        left: 8px;
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+ 
+    .pdf-container {
+        padding: 10px;
+    }
+ 
+    .pdf-page-info {
+        font-size: 13px;
+    }
+ 
+    .pdf-page-info input {
+        width: 45px;
+        padding: 5px 6px;
+    }
+}
+ 
+/* Reduced motion */
+@media (preferes-reduced-motion: reduce) {
+    .pdf-viewer-overlay,
+    .pdf-viewer {
+        animation: none;
+    }
+ 
+    .pdf-close-button {
+        transition: none;
+    }
+}
+ 

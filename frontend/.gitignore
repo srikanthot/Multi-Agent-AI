@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+ 
+.env
+.env.local
+.env.production
+.env.staging
+!.env.example
+ 
+*.log
+npm-debug.log*
+ 
+.DS_Store
+Thumbs.db
+ 

@@ -1,0 +1,67 @@
+.toggle-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+ 
+.toggle-container.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+ 
+.toggle-label {
+    font-size: 14px;
+    color: var(--color-text-primary);
+    user-select: none;
+    cursor: pointer;
+}
+ 
+.toggle {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    padding: 2px;
+    border: none;
+    border-radius: 12px;
+    background: var(--border-light);
+    cursor: pointer;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+ 
+.toggle:hover:not(:disabled) {
+    background: var(--color-text-muted);
+}
+ 
+.toggle:focus-visible {
+    outline: 2px solid var(--color-accent-orange);
+    outline-offset: 2px;
+}
+ 
+.toggle:disabled {
+    cursor: not-allowed;
+}
+ 
+.toggle-on {
+    background: var(--color-accent-orange);
+}
+ 
+.toggle-on:hover:not(:disabled) {
+    background: var(--color-accent-orange-hover);
+    filter: brightness(1.1);
+}
+ 
+.toggle-on .toggle-thumb {
+    transform: translateX(20px);
+}
+ 
+.toggle-thumb {
+    display: block;
+    width: 20px;
+    height: 20px;
+    background: var(--color-accent);
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    transition: transform 0.2s ease;
+}
+ 
