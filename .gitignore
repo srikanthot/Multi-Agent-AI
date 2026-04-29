@@ -31,4 +31,14 @@ out/
 # Logs
 *.log
 npm-debug.log*
- 
+
+# Test fixtures — PDFs are local-only (kept out of git history because of size
+# and because PSEG technical manuals are confidential). Each developer drops
+# their own copy in backend/tests/fixtures/manuals/ — see the README there.
+backend/tests/fixtures/manuals/*.pdf
+backend/tests/fixtures/manuals/*.PDF
+
+# Golden-set test runs produce timestamped reports — keep one curated baseline
+# in version control, but the per-run output is generated and noisy.
+backend/tests/golden_results/
+

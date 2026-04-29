@@ -233,8 +233,55 @@ def _compute_gate(results: list[dict]) -> tuple[float, float, bool]:
         return avg, MIN_RERANKER_SCORE, True
     avg = sum(r["score"] for r in results) / len(results) if results else 0.0
     return avg, MIN_AVG_SCORE, False
- 
- 
+
+
+def _gate_passes(results: list[dict]) -> bool:
+    """Return True if results meet both the count and score thresholds."""
+    if len(results) < MIN_RESULTS:
+        return False
+    avg, threshold, _ = _compute_gate(results)
+    return avg >= threshold
+
+
+async def _retrieve_with_fallback(
+    search_query: str,
+    original_question: str,
+    top_k: int,
+    thread_id: str,
+) -> tuple[list[dict], str]:
+    """Run retrieval, retrying once with the original question if the
+    rewritten query produced results that fail the gate.
+
+    Fallback fires only when:
+      * the rewritten query differs from the user's original question, AND
+      * results from the rewritten query fail the gate (count or score).
+
+    This protects against rewriter blending: if the rewriter fused two
+    unrelated topics, retrieval scores poorly on the blend and we re-run
+    with the user's actual words.
+    """
+    results = await asyncio.to_thread(retrieve, search_query, top_k=top_k)
+    if search_query == original_question:
+        return results, search_query
+    if _gate_passes(results):
+        return results, search_query
+    logger.info(
+        "Retrieval gate failed on rewritten query — retrying with original | "
+        "thread=%s rewrite=%r original=%r",
+        thread_id, search_query[:120], original_question[:120],
+    )
+    fallback_results = await asyncio.to_thread(
+        retrieve, original_question, top_k=top_k,
+    )
+    if _gate_passes(fallback_results):
+        logger.info(
+            "Fallback retrieval succeeded | thread=%s n=%d",
+            thread_id, len(fallback_results),
+        )
+        return fallback_results, original_question
+    return fallback_results, original_question
+
+
 async def _resolve_conversation(
     thread_id: str,
     user_id: str,
@@ -569,14 +616,16 @@ class AgentRuntime:
         search_query = question
         if is_storage_enabled() and user_msg is not None:
             recent = await chat_store.get_messages_for_user(
-                thread_id, user_id, max_turns=4, before_sequence=user_msg.sequence,
+                thread_id, user_id, max_turns=8, before_sequence=user_msg.sequence,
             )
             if recent:
                 search_query = await asyncio.to_thread(rewrite_query, question, recent)
  
         # ── 3. RETRIEVE ────────────────────────────────────────────────────
         try:
-            results: list[dict] = await asyncio.to_thread(retrieve, search_query, top_k=top_k)
+            results, search_query_used = await _retrieve_with_fallback(
+                search_query, question, top_k, thread_id,
+            )
         except Exception:
             logger.exception("Retrieval failed | thread=%s", thread_id)
             err_msg = (
@@ -609,7 +658,7 @@ class AgentRuntime:
                 "threshold_n=%d threshold=%.3f reranker=%s query=%r",
                 thread_id, "+".join(reasons), len(results), avg_effective,
                 MIN_RESULTS, gate_threshold, has_reranker,
-                search_query[:120],
+                search_query_used[:120],
             )
             await _persist_assistant(thread_id, user_id, _INSUFFICIENT_EVIDENCE_MSG, {}, [])
             return {
@@ -629,7 +678,7 @@ class AgentRuntime:
         # ── 7. GENERATE (buffered) ─────────────────────────────────────────
         # Always pass the original question to the LLM — search_query (rewritten)
         # is only used for retrieval. The LLM must answer the user's actual words.
-        answer_text, had_error = await _buffer_llm_response(question, af_session)
+        answer_text, meta, had_error = await _buffer_llm_response(question, af_session)
  
         if had_error:
             err_append = "\n\nI'm sorry — an error occurred while generating the answer. Please try again."
@@ -784,14 +833,16 @@ class AgentRuntime:
         search_query = question
         if is_storage_enabled() and user_msg is not None:
             recent = await chat_store.get_messages_for_user(
-                thread_id, user_id, max_turns=4, before_sequence=user_msg.sequence,
+                thread_id, user_id, max_turns=8, before_sequence=user_msg.sequence,
             )
             if recent:
                 search_query = await asyncio.to_thread(rewrite_query, question, recent)
  
         # ── 3. RETRIEVE ────────────────────────────────────────────────────
         try:
-            results: list[dict] = await asyncio.to_thread(retrieve, search_query, top_k=top_k)
+            results, search_query_used = await _retrieve_with_fallback(
+                search_query, question, top_k, thread_id,
+            )
         except Exception:
             logger.exception("Retrieval failed | thread=%s", thread_id)
             err_msg = (
@@ -826,7 +877,7 @@ class AgentRuntime:
                 "Gate REJECTED | thread=%s reason=%s | n=%d avg=%.4f "
                 "threshold_n=%d threshold=%.3f reranker=%s query=%r",
                 thread_id, "+".join(reasons), len(results), avg_effective,
-                MIN_RESULTS, gate_threshold, has_reranker, search_query[:120],
+                MIN_RESULTS, gate_threshold, has_reranker, search_query_used[:120],
             )
             await _persist_assistant(thread_id, user_id, _INSUFFICIENT_EVIDENCE_MSG, {}, [])
             yield _sse_data(_INSUFFICIENT_EVIDENCE_MSG)

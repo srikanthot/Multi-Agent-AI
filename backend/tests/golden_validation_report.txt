@@ -1,0 +1,180 @@
+========================================================================
+GOLDEN SET — KEYWORD VERBATIM VALIDATION REPORT
+========================================================================
+
+Total keyword assertions checked: 605
+Found verbatim (after normalization): 601 (99.3%)
+Missing: 4
+Found in DIFFERENT manual than cited: 64
+
+Tests fully clean (every keyword found): 166
+Tests with at least one issue: 4
+
+------------------------------------------------------------------------
+BY CATEGORY
+------------------------------------------------------------------------
+  100.0%  ( 60/ 60)  C1_direct_fact_lookup
+   95.6%  ( 43/ 45)  C2_procedure_or_step_lookup
+  100.0%  ( 30/ 30)  C3_synthesis_within_one_manual
+   95.6%  ( 43/ 45)  C4_ambiguous_or_edge_case
+  100.0%  ( 64/ 64)  C5_multi_turn_cross_manual_pivot
+  100.0%  ( 15/ 15)  C7_citation_and_source_strictness
+  100.0%  ( 60/ 60)  context_return
+  100.0%  ( 30/ 30)  cross_section_synthesis
+  100.0%  ( 31/ 31)  deepening_follow_up
+  100.0%  ( 60/ 60)  multi_turn_follow_up
+  100.0%  ( 45/ 45)  procedural_how_to
+  100.0%  ( 60/ 60)  single_direct_factual
+  100.0%  ( 60/ 60)  topic_switching
+
+------------------------------------------------------------------------
+MISSING / PROBLEMATIC ASSERTIONS
+------------------------------------------------------------------------
+  T024  [C2_procedure_or_step_lookup]  manual='ED-DC-IRE.pdf'
+      keyword: 'cost of installing and removing additional facilities'
+      reason : phrase_not_found_verbatim
+      where  : T024 (top-level expected_keywords)
+  T031  [C2_procedure_or_step_lookup]  manual='pepp_manual_new.pdf'
+      keyword: 'submitted by the customer'
+      reason : phrase_not_found_verbatim
+      where  : T031 (top-level expected_keywords)
+  T048  [C4_ambiguous_or_edge_case]  manual='ED-DC-IRE.pdf'
+      keyword: 'over/under or side'
+      reason : phrase_not_found_verbatim
+      where  : T048 (top-level expected_keywords)
+  T050  [C4_ambiguous_or_edge_case]  manual='ED-DC-IRE.pdf'
+      keyword: 'cost of installing and removing additional facilities'
+      reason : phrase_not_found_verbatim
+      where  : T050 (top-level expected_keywords)
+
+------------------------------------------------------------------------
+ASSERTIONS FOUND IN A DIFFERENT MANUAL THAN CITED
+------------------------------------------------------------------------
+  T061  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'must be installed not less than 3 ft from any source of ignition'
+  T061  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'ventilated space readily'
+  T061  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'examination, reading, replacement, or necessary maintenance'
+  T061  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'PSE&G will require a Cut-in card'
+  T061  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'certificate approving the customer’s electrical'
+  T062  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'manufacturer’s sizing tables shall be used when sizing CSST'
+  T062  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'approved by local code enforcement prior to energizing'
+  T062  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'trained and certified according'
+  T062  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'overhead service drop is 100 ft or less'
+  T062  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'flat fee for the temporary service'
+  T063  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'Meters shall be located at least 3 ft from electrical meters'
+  T063  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'not be installed closer than 2 ft'
+  T063  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'other sources of ignition'
+  T063  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'built-in Emergency Disconnect'
+  T063  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'meter centerline is between 36 in. and'
+  T064  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'A check valve shall be installed on the booster inlet piping'
+  T064  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'low pressure shutoff device shall be installed between the booster and the gas meter(s)'
+  T064  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'protection against a dangerous reduction in gas pressure'
+  T064  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'Only one collar adapter may be installed between the meter and meter socket'
+  T065  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'Do not purge the contents of a gas line into a confined space'
+  T065  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'Always use gas detection'
+  T065  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'DO NOT rely on your sense of smell alone'
+  T065  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'shall be located within 80 conductor feet'
+  T066  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'PSE&G’s Metering Department shall designate the location'
+  T066  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'minimum clearance of 36 in.'
+  T066  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'edge of the walkway'
+  T066  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'meter centerline is between 36 in. and'
+  T067  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'minimum of 38 kV level'
+  T067  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: '8 ohm (approximate) neutral resistor'
+  T067  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: '26.4 kV operation'
+  T067  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'No couplings are permitted above the highest mast support point'
+  T068  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'Three sets of final plans and shop drawings'
+  T068  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'completed prior to the fabrication of apparatus'
+  T068  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'PSE&G will not be responsible for field revisions'
+  T068  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'underground service extension is 10 ft or less'
+  T068  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'last 2 ft'
+  T069  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: '1,200 A continuous current rating'
+  T069  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'short circuit interrupting duty of 31.5 kA'
+  T069  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: '80 kA (Peak)'
+  T069  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'restricted to (120/240 V) residential use only'
+  T070  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'PSE&G will review the relay settings'
+  T070  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'witness the initial trip checks'
+  T070  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'Adequate relay test facilities'
+  T070  cited=None  found_in='ED-DC-IRE.pdf'
+      keyword: 'inspection authority having jurisdiction'
+  T071  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'Basic SCADA functionality is required for all customer subs'
+  T071  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'standard Mini SCADA box'
+  T071  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'Dry contact inputs for indication enabled'
+  T071  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'All CSST systems shall be designed and installed'
+  T071  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'approved by local code enforcement prior to energizing'
+  T072  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'individual photo-electric sensors'
+  T072  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'standard PSE&G street lighting bracket is 8 ft in length'
+  T072  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'Timers and timed photo controls are available'
+  T072  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'fixed electric light shall be installed near the appliance'
+  T073  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'battery shall be sized for minimum of an 8-hour discharge rate'
+  T073  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'automatic charger, a voltmeter and a low voltage alarm'
+  T073  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'low voltage alarm'
+  T073  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'low pressure shutoff device shall be installed between the booster and the gas meter(s)'
+  T074  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'maximum available three-phase short circuit current'
+  T074  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: '31.5 kA (Short Time'
+  T074  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'PSE&G recommends that the customer design its substation'
+  T074  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'Scuttles or trap doors shall be at least 24 in. x 36 in. in size'
+  T075  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'PSE&G’s review of the above final plans or drawings'
+  T075  cited=None  found_in='pepp_manual_new.pdf'
+      keyword: 'does not indicate safe or faultless design'
+  T075  cited=None  found_in='gas_appliances_gas_piping.pdf'
+      keyword: 'Gas piping at multiple meter installations shall be plainly marked'
