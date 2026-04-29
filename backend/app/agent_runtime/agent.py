@@ -294,22 +294,58 @@ def _equipment_classes_in_text(text: str) -> set[str]:
     return out
 
 
+def _voltage_sort_key(v: str) -> tuple[int, float]:
+    """Numeric+unit sort for voltage labels like '15 kV' / '120 V'."""
+    try:
+        num_str, unit = v.split()
+        num = float(num_str)
+    except (ValueError, IndexError):
+        return (2, 0.0)
+    return (0 if unit == "kV" else 1, num)
+
+
+def _question_is_generic(question: str) -> bool:
+    """Return True when the user's question lacks specific anchors.
+
+    A "generic" question is one that does not name a voltage, equipment
+    class, AC/DC, indoor/outdoor, energized state, or other specific
+    scenario.  Generic questions are inherently ambiguous when the corpus
+    contains content for multiple specific scenarios — the bot must ask
+    which one applies.
+    """
+    if _voltage_buckets(question):
+        return False
+    if _equipment_classes_in_text(question):
+        return False
+    return True
+
+
 def detect_specificity_ambiguity(
     question: str,
     chunks: list[dict],
 ) -> tuple[bool, str]:
-    """Decide whether retrieved chunks span multiple specifics that the
-    user's question did not anchor to.
+    """Decide whether retrieved chunks contain specifics the user did not name.
 
     Returns (is_ambiguous, formatted_options_block).
 
-    is_ambiguous=True when:
-      - chunks mention 2+ distinct voltage levels, OR
-      - chunks mention 2+ conflicting equipment classes
-        (e.g. pad-mount AND pole-mount; indoor AND outdoor; AC AND DC;
-        energized AND de-energized)
-      AND the user's question does not name a voltage or equipment class
-      from the set found in the chunks.
+    Two paths to is_ambiguous=True:
+
+      A. Multi-value: chunks span 2+ distinct voltage levels OR 2+
+         conflicting equipment classes, AND the user's question did not
+         name any of those values.
+
+      B. Generic-question + specific-content: the user's question contains
+         NO voltage / equipment / state markers at all (i.e. is generic),
+         AND ANY chunk contains a specific voltage or specific equipment
+         class.  Even if there's only one specific value in the chunks,
+         picking that value silently is unsafe — the user might be working
+         on a different scenario entirely.
+
+    Path B catches the production failure pattern observed during testing:
+      Q: 'What tools are needed?'  (generic — no voltage / equipment named)
+      Chunks: [general service-connection prose] + [69 kV splice tools]
+      → only 1 voltage value present, but answering with 69 kV tools when
+        user might be doing 15 kV install is unsafe.
 
     formatted_options_block is the human-readable list of options to inject
     into the system prompt. Empty string when not ambiguous.
@@ -317,27 +353,22 @@ def detect_specificity_ambiguity(
     if not chunks:
         return False, ""
 
-    # Aggregate over all chunk content
     all_text = "\n".join(c.get("content") or "" for c in chunks)
     chunk_voltages = _voltage_buckets(all_text)
     chunk_equip = _equipment_classes_in_text(all_text)
 
     q_voltages = _voltage_buckets(question)
     q_equip = _equipment_classes_in_text(question)
+    q_is_generic = _question_is_generic(question)
 
     options: list[str] = []
 
-    # Voltage ambiguity — chunks span 2+ voltages, question names none of them.
+    # Path A — multiple distinct voltages in chunks, user named none of them.
     if len(chunk_voltages) >= 2 and not (q_voltages & chunk_voltages):
-        # Sort voltages numerically for consistent ordering
-        def _voltage_sort_key(v: str) -> tuple[int, float]:
-            num_str, unit = v.split()
-            num = float(num_str)
-            return (0 if unit == "kV" else 1, num)
         sorted_v = sorted(chunk_voltages, key=_voltage_sort_key)
-        options.append("Voltage levels mentioned: " + ", ".join(sorted_v))
+        options.append("Voltage classes found: " + ", ".join(sorted_v))
 
-    # Equipment-class ambiguity — chunks span conflicting pairs.
+    # Path A — equipment-class conflict pairs in chunks.
     _CONFLICT_PAIRS = [
         ("pad-mount transformer", "pole-mount transformer"),
         ("oil-filled", "dry-type"),
@@ -350,24 +381,54 @@ def detect_specificity_ambiguity(
     ]
     for a, b in _CONFLICT_PAIRS:
         if a in chunk_equip and b in chunk_equip:
-            # Skip if user named one of them
             if a in q_equip or b in q_equip:
                 continue
             options.append(f"Equipment / service type: {a} vs {b}")
+
+    # Path B — generic question with specific chunks (the production bug).
+    # Only fire when Path A didn't already fire, and only when the user's
+    # question is fully generic. We require the chunk specificity to be
+    # "narrow" — i.e. the chunks have a specific voltage or equipment
+    # marker that's NOT something a user would have implied.
+    if not options and q_is_generic:
+        # Specific voltage in chunks user didn't name — flag.
+        if chunk_voltages:
+            sorted_v = sorted(chunk_voltages, key=_voltage_sort_key)
+            options.append(
+                f"The retrieved content is specific to {', '.join(sorted_v)}; "
+                f"this may not match your equipment / scenario"
+            )
+        # Specific equipment class in chunks user didn't name — flag.
+        # Only one-direction markers (e.g. "indoor" alone, no "outdoor"
+        # to conflict with).  Avoid double-counting Path A.
+        if chunk_equip and not options:
+            sorted_e = sorted(chunk_equip)
+            options.append(
+                f"The retrieved content is specific to: {', '.join(sorted_e)}; "
+                f"this may not match your scenario"
+            )
 
     if not options:
         return False, ""
 
     block = (
-        "DISAMBIGUATION REQUIRED — the retrieved manual content covers "
-        "multiple specific scenarios that the user's question did NOT name:\n"
+        "DISAMBIGUATION REQUIRED — the retrieved manual content is specific "
+        "to scenarios that the user's question did NOT name:\n"
         + "\n".join(f"  • {o}" for o in options)
-        + "\n\nDO NOT pick one and answer. The procedure, value, or requirement "
-        "may differ between these. Field technicians work on live equipment; "
-        "a wrong answer for a different scenario can cause injury.\n\n"
-        "INSTEAD: List the distinct scenarios above as bullet points, then "
-        "ask the user which one applies to their specific work. Example: "
-        "'I see content for {options}. Which one applies to your work?'"
+        + "\n\n"
+        "MANDATORY RESPONSE FORMAT for this turn (DO NOT deviate):\n"
+        "  1. Open with: 'I want to make sure you get the right information. "
+        "The manual covers multiple scenarios for this topic:'\n"
+        "  2. List the specific scenarios as bullet points (one per line).\n"
+        "  3. End with a clarifying question like: 'Which scenario / "
+        "voltage / equipment applies to your work?'\n"
+        "  4. DO NOT provide ANY procedural steps, tool lists, torque "
+        "values, specifications, or other actionable content. The user "
+        "MUST clarify first.\n\n"
+        "Picking one scenario and answering would give wrong information "
+        "for the other scenarios. Field technicians work on live equipment; "
+        "a wrong answer for a different scenario can cause injury, "
+        "equipment damage, or compliance violations."
     )
     return True, block
 

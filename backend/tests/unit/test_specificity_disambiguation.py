@@ -117,7 +117,7 @@ class TestVoltageAmbiguity:
         assert "15 kV" in block
         assert "25 kV" in block
         assert "69 kV" in block
-        assert "DO NOT pick one and answer" in block
+        assert "MANDATORY RESPONSE FORMAT" in block
 
     def test_user_specifies_voltage_not_ambiguous(self):
         chunks = [
@@ -131,13 +131,30 @@ class TestVoltageAmbiguity:
         )
         assert is_amb is False
 
-    def test_single_voltage_not_ambiguous(self):
+    def test_single_voltage_with_specific_question_not_ambiguous(self):
+        """If the user names the voltage, single-voltage chunks are fine."""
+        chunks = [
+            _chunk("For 15 kV transformer installation, follow these steps..."),
+            _chunk("Additional 15 kV procedures..."),
+        ]
+        is_amb, _ = detect_specificity_ambiguity(
+            "what tools are needed for 15 kV install", chunks,
+        )
+        assert is_amb is False
+
+    def test_single_voltage_with_generic_question_IS_ambiguous(self):
+        """Path B: generic question + specific voltage chunk = ambiguous.
+
+        This is the production failure pattern: only one voltage in chunks
+        but user's question is generic, so picking that voltage silently
+        is unsafe.
+        """
         chunks = [
             _chunk("For 15 kV transformer installation, follow these steps..."),
             _chunk("Additional 15 kV procedures..."),
         ]
         is_amb, _ = detect_specificity_ambiguity("what tools are needed", chunks)
-        assert is_amb is False
+        assert is_amb is True
 
 
 class TestEquipmentClassAmbiguity:
@@ -203,13 +220,14 @@ class TestNoAmbiguity:
         )
         assert is_amb is False
 
-    def test_one_voltage_one_equipment_not_ambiguous(self):
+    def test_one_voltage_one_equipment_specific_question_not_ambiguous(self):
+        """If user names the voltage AND equipment, no need to clarify."""
         chunks = [
             _chunk("For 15 kV pad-mount transformer install, do X..."),
             _chunk("For 15 kV pad-mount transformer maintenance, do Y..."),
         ]
         is_amb, _ = detect_specificity_ambiguity(
-            "what is the procedure", chunks,
+            "what is the procedure for 15 kV pad-mount transformer", chunks,
         )
         assert is_amb is False
 
@@ -241,6 +259,7 @@ class TestProductionPattern:
         )
         assert is_amb is True
         assert "DISAMBIGUATION REQUIRED" in block
+        assert "MANDATORY RESPONSE FORMAT" in block
         assert "wrong answer for a different scenario can cause injury" in block
 
     def test_general_service_question_with_voltage_chunks(self):
@@ -254,3 +273,91 @@ class TestProductionPattern:
         )
         # 15 vs 25 kV span -> should be flagged
         assert is_amb is True
+
+
+# ---------------------------------------------------------------------------
+# Path B: generic question + ANY specific chunk content (the real prod bug)
+# ---------------------------------------------------------------------------
+# The "tools needed" production failure had ONLY ONE voltage in the chunks
+# (69 kV) plus generic prose. Multi-voltage detection (Path A) didn't fire.
+# Path B catches this: when user's Q is generic AND chunks contain ANY
+# specific voltage / equipment marker, flag as ambiguous so bot must ask.
+# ---------------------------------------------------------------------------
+
+
+class TestGenericQuestionWithSingleSpecificChunk:
+    """The real production bug: Q is generic, only ONE specific value in chunks."""
+
+    def test_generic_tools_question_with_single_voltage_chunk(self):
+        """The real T146-T160-style production failure pattern."""
+        chunks = [
+            _chunk(
+                "Application for Wiring Inspection is required before work."
+            ),
+            _chunk(
+                "For installing a 69 kV one-piece molded splice, the "
+                "following special tools are needed: scoring knife, "
+                "heat gun, compression tool..."
+            ),
+            _chunk(
+                "Cut-in cards must be approved by the inspection authority."
+            ),
+        ]
+        # User: 'what tools are needed' — generic, no voltage named
+        is_amb, block = detect_specificity_ambiguity(
+            "what tools are needed", chunks,
+        )
+        assert is_amb is True, (
+            "Generic Q + specific 69 kV chunk MUST flag as ambiguous — "
+            "the bot was confidently giving 69 kV splice tools to users "
+            "who weren't doing 69 kV work"
+        )
+        assert "69 kV" in block
+        assert "MANDATORY RESPONSE FORMAT" in block
+
+    def test_generic_question_with_single_equipment_class(self):
+        chunks = [
+            _chunk("General service connection requires inspection."),
+            _chunk("For pad-mount transformer installation, the procedure is..."),
+            _chunk("Cut-in cards are required."),
+        ]
+        is_amb, _ = detect_specificity_ambiguity(
+            "what is the procedure", chunks,
+        )
+        assert is_amb is True
+
+    def test_specific_question_with_specific_chunk_not_ambiguous(self):
+        """Regression — if user names the voltage, NO disambiguation."""
+        chunks = [
+            _chunk(
+                "For installing a 69 kV one-piece molded splice, the "
+                "following tools are needed..."
+            ),
+        ]
+        is_amb, _ = detect_specificity_ambiguity(
+            "what tools are needed for 69 kV splice", chunks,
+        )
+        assert is_amb is False, (
+            "User explicitly named 69 kV — should not over-clarify"
+        )
+
+    def test_specific_question_with_pad_mount_chunk_not_ambiguous(self):
+        chunks = [
+            _chunk("For pad-mount transformer install, do X..."),
+        ]
+        is_amb, _ = detect_specificity_ambiguity(
+            "what is the procedure for pad-mount transformer", chunks,
+        )
+        assert is_amb is False
+
+    def test_generic_q_no_specific_chunks_not_ambiguous(self):
+        """Pure generic content — nothing to disambiguate to."""
+        chunks = [
+            _chunk("Service Consultants help customers with new installations."),
+            _chunk("Cut-in cards must be sent electronically."),
+            _chunk("Inspection authorities approve the wiring."),
+        ]
+        is_amb, _ = detect_specificity_ambiguity(
+            "what is the procedure", chunks,
+        )
+        assert is_amb is False
