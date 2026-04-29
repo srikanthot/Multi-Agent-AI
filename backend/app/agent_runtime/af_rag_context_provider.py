@@ -46,13 +46,11 @@ _CONDENSATION_MODE_KEY = "_rag_condensation_mode"
 # overriding any default behaviour.
 _DISAMBIGUATION_BLOCK_KEY = "_rag_disambiguation_block"
 
-# Holds a "limited evidence" note string. Populated by AgentRuntime when
-# retrieval produced borderline-confidence results (between the soft floor
-# and the strict gate). When set, it is appended after context blocks so
-# the LLM either answers with hedging OR explicitly refuses if the
-# chunks don't clearly answer the question. Critical for safety-critical
-# use: avoids confident-but-unsupported answers on weakly matched content.
-_LIMITED_EVIDENCE_KEY = "_rag_limited_evidence_note"
+# NOTE — A "limited evidence" override key was added and rolled back
+# after audit (hedging notes are unsafe with field technicians). The
+# constant is retained ONLY so existing callers that may set this key
+# don't crash; the value is read but not used anywhere downstream.
+_LIMITED_EVIDENCE_KEY = "_rag_limited_evidence_note"  # deprecated, no-op
  
  
 class RagContextProvider(BaseContextProvider):

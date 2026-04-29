@@ -320,6 +320,79 @@ def _question_is_generic(question: str) -> bool:
     return True
 
 
+# Words that indicate the user is asking for a specific actionable answer
+# (a value, a procedure, a tool list, a spec) rather than a general
+# definition. Path B disambiguation only fires when one of these appears
+# in the user's question — otherwise we'd over-clarify on definitional
+# questions like "What is PSEG?" where the corpus naturally has voltage
+# references in the surrounding equipment descriptions.
+_ACTION_SEEKING_WORDS = {
+    # Procedure / steps
+    "procedure", "procedures", "process", "steps", "step",
+    "how", "instructions", "instruction", "method", "methods",
+    # Tools / equipment lists
+    "tool", "tools", "equipment", "materials", "supplies",
+    # PPE
+    "ppe", "gloves", "harness", "helmet", "shield",
+    # Numerical specs
+    "torque", "value", "values", "rating", "ratings", "spec", "specs",
+    "specification", "specifications", "size", "sizes", "depth",
+    "clearance", "distance", "spacing", "current", "amps", "amperage",
+    "ohms", "resistance", "pressure", "psi", "temperature",
+    "frequency", "interval", "intervals",
+    # Requirements (incl. conjugations)
+    "requirement", "requirements", "required", "require", "requires",
+    "needed", "need", "needs",
+    "minimum", "maximum", "limit", "limits", "threshold", "tolerance",
+    # Settings / parameters
+    "setting", "settings", "parameter", "parameters",
+    # Action verbs that imply seeking instructions
+    "install", "installed", "remove", "removed", "connect", "connected",
+    "disconnect", "test", "tested", "inspect", "inspected",
+    "replace", "replaced", "operate", "operated", "maintain", "maintained",
+    "calibrate", "calibrated", "set", "adjust", "adjusted",
+}
+
+# Words that indicate the user is asking for a definition or explanation,
+# NOT an action. These should NOT trigger Path B disambiguation even if
+# chunks happen to contain voltage references.
+_DEFINITIONAL_PHRASES = (
+    "what is ",  "what's ",  "what are ", "what're ",
+    "who is ",   "who's ",   "who are ",
+    "explain ",  "describe ", "tell me about ", "tell me more about ",
+    "what does ",  "what do ",
+    "definition of", "meaning of",
+)
+
+
+def _is_action_seeking_question(question: str) -> bool:
+    """Return True if the question is asking for an actionable answer.
+
+    Rule: presence of any ACTION_SEEKING_WORD anywhere in the question
+    counts as action-seeking, EVEN IF the question opens with a
+    definitional phrase like "what is the".  E.g.:
+      - "what is the procedure"        -> True  (action: 'procedure')
+      - "what is the torque value"     -> True  (action: 'torque', 'value')
+      - "what tools are needed"        -> True  (action: 'tools')
+      - "What is PSEG?"                -> False (no action words)
+      - "Tell me about cut-in cards"   -> False (no action words)
+      - "Describe a substation"        -> False (no action words)
+
+    A purely definitional question like "what is PSEG" cannot accidentally
+    trigger Path B because no action-seeking word is present.
+
+    Path B disambiguation only fires when the user is asking for an
+    actionable answer (procedure, value, tool list, spec, etc.) — picking
+    one specific scenario silently when multiple exist could give wrong
+    instructions to a field technician.
+    """
+    if not question:
+        return False
+    q = question.lower().strip()
+    tokens = re.findall(r"[a-z0-9]+", q)
+    return any(t in _ACTION_SEEKING_WORDS for t in tokens)
+
+
 def detect_specificity_ambiguity(
     question: str,
     chunks: list[dict],
@@ -351,6 +424,16 @@ def detect_specificity_ambiguity(
     into the system prompt. Empty string when not ambiguous.
     """
     if not chunks:
+        return False, ""
+
+    # Top-level guard: if the user is asking a purely definitional question
+    # ("What is PSEG?", "Describe a substation", "Tell me about X"), we
+    # must not disambiguate regardless of chunk content. Definitional
+    # answers are not safety-critical to the same scenario distinctions —
+    # the user wants a definition, not "which voltage applies?". Over-
+    # clarifying here makes the bot sound robotic and is the over-fire
+    # risk identified in the post-Round-5 audit.
+    if not _is_action_seeking_question(question):
         return False, ""
 
     all_text = "\n".join(c.get("content") or "" for c in chunks)
@@ -386,10 +469,10 @@ def detect_specificity_ambiguity(
             options.append(f"Equipment / service type: {a} vs {b}")
 
     # Path B — generic question with specific chunks (the production bug).
-    # Only fire when Path A didn't already fire, and only when the user's
-    # question is fully generic. We require the chunk specificity to be
-    # "narrow" — i.e. the chunks have a specific voltage or equipment
-    # marker that's NOT something a user would have implied.
+    # Fires when Path A didn't already fire and the user's question is
+    # fully generic (no voltage / equipment named). The top-level
+    # action-seeking guard above already filtered out definitional
+    # questions, so we know the question is action-seeking here.
     if not options and q_is_generic:
         # Specific voltage in chunks user didn't name — flag.
         if chunk_voltages:
@@ -456,88 +539,14 @@ def _gate_passes(results: list[dict]) -> bool:
     return avg >= threshold
 
 
-# ---------------------------------------------------------------------------
-# Confidence tiers — replaces the binary gate for safety-critical use
-# ---------------------------------------------------------------------------
-# The original binary gate (avg >= MIN_RERANKER_SCORE) refuses borderline
-# content (1.5-1.8 range) even when it's relevant. Field technicians then
-# see "no evidence" for content that IS in the manual (Defect A — cold
-# zone false negatives).
-#
-# Three tiers:
-#
-#   HIGH   (avg >= MIN_RERANKER_SCORE, default 1.8): confident match.
-#          Normal flow — bot answers using context blocks.
-#
-#   MEDIUM (avg in [SOFT_GATE_FLOOR, MIN_RERANKER_SCORE], default 1.4-1.8):
-#          relevant but borderline. Bot still gets the chunks, but the
-#          system context is annotated with "limited evidence" framing,
-#          so the LLM either answers with appropriate hedging OR refuses
-#          if the chunks don't actually contain the answer.
-#
-#   LOW    (avg < SOFT_GATE_FLOOR, default 1.4): no real match.
-#          Bot refuses with a helpful message asking for more context.
-
-# Soft-gate floor — content below this is genuinely irrelevant and should
-# be refused. Between SOFT_GATE_FLOOR and MIN_RERANKER_SCORE is the
-# "borderline" zone where chunks pass through but with caveats.
-# Reranker scores are on a 0-4 scale; 1.4 is "weakly relevant".
-_SOFT_GATE_FLOOR_RERANKER = 1.4
-_SOFT_GATE_FLOOR_RRF = 0.012  # RRF score equivalent floor
-
-# Minimum chunks for HIGH tier — below this even a high-scoring single
-# chunk is not enough to be confident.
-_HIGH_TIER_MIN_RESULTS = MIN_RESULTS  # 2
-
-
-CONFIDENCE_HIGH = "HIGH"
-CONFIDENCE_MEDIUM = "MEDIUM"
-CONFIDENCE_LOW = "LOW"
-
-
-def assess_confidence(results: list[dict]) -> tuple[str, float, float]:
-    """Return (confidence_tier, avg_score, gate_threshold).
-
-    Tier semantics:
-      HIGH   — bot answers normally
-      MEDIUM — bot gets chunks but with "limited evidence" framing
-      LOW    — bot refuses
-
-    Decision uses MIN_RESULTS for count gating (a single chunk, however
-    high-scoring, is never HIGH because we want corroborating evidence).
-    """
-    if not results:
-        return CONFIDENCE_LOW, 0.0, MIN_RERANKER_SCORE
-
-    avg, threshold, has_reranker = _compute_gate(results)
-    soft_floor = _SOFT_GATE_FLOOR_RERANKER if has_reranker else _SOFT_GATE_FLOOR_RRF
-
-    if len(results) < _HIGH_TIER_MIN_RESULTS:
-        # Too few chunks for confident answer, but maybe enough for
-        # borderline if the score is OK.
-        if avg >= soft_floor:
-            return CONFIDENCE_MEDIUM, avg, threshold
-        return CONFIDENCE_LOW, avg, threshold
-
-    if avg >= threshold:
-        return CONFIDENCE_HIGH, avg, threshold
-    if avg >= soft_floor:
-        return CONFIDENCE_MEDIUM, avg, threshold
-    return CONFIDENCE_LOW, avg, threshold
-
-
-_LIMITED_EVIDENCE_NOTE = (
-    "LIMITED EVIDENCE NOTICE — the retrieved manual content is only weakly "
-    "matched to your question (borderline relevance). For this turn:\n"
-    "  • If the context above clearly contains the answer, provide it but "
-    "explicitly note 'based on partially-matching content' at the start.\n"
-    "  • If the context does NOT clearly answer the question, REFUSE: say "
-    "'The manual content I found is only loosely related to your question. "
-    "Could you provide more detail — e.g. equipment name, voltage, or the "
-    "specific procedure you need?'\n"
-    "  • Field technicians act on what you say; do NOT answer if you are "
-    "not sure the context contains the right information."
-)
+# NOTE — A confidence-tier system (HIGH/MEDIUM/LOW with hedging on
+# MEDIUM) was added and rolled back after audit. For field-tech use,
+# answer-with-caveat on borderline retrieval is unsafe — technicians
+# act on the answer regardless of the caveat. The binary gate
+# (avg >= MIN_RERANKER_SCORE AND len >= MIN_RESULTS, else refuse) is
+# the safer stance and the one we ship. If Defect A (false negatives
+# on real content scoring 1.5-1.7) becomes a frequent complaint,
+# tune MIN_RERANKER_SCORE downward in settings — keep the gate binary.
 
 
 async def _retrieve_with_fallback(
@@ -946,25 +955,30 @@ class AgentRuntime:
             await _persist_assistant(thread_id, user_id, err_msg, {}, [], had_error=True)
             return {"answer": err_msg, "citations": [], "meta": {}, "thread_id": thread_id, "session_id": thread_id}
  
-        # ── 4. CONFIDENCE TIER ─────────────────────────────────────────────
-        # 3-tier system replaces binary gate (Defect A — cold zone false
-        # negatives).  HIGH = answer normally; MEDIUM = answer with hedging
-        # framing OR refuse if context isn't clear; LOW = refuse outright.
-        confidence, avg_effective, gate_threshold = assess_confidence(results)
+        # ── 4. GATE (binary, safety-critical) ──────────────────────────────
+        # For field-tech use: refuse-when-uncertain is safer than
+        # answer-with-hedging.  A "limited evidence" caveat won't stop a
+        # tired technician from acting on a confidently-formatted answer.
+        # We use the strict binary gate (HIGH or refuse) — the MEDIUM tier
+        # was rolled back after audit because hedging answers on borderline
+        # content introduces real-world safety risk.
+        avg_effective, gate_threshold, has_reranker = _compute_gate(results)
 
         if TRACE_MODE:
             logger.info(
-                "TRACE | thread=%s n_results=%d avg=%.4f confidence=%s "
-                "(threshold=%.3f)",
-                thread_id, len(results), avg_effective, confidence, gate_threshold,
+                "TRACE | thread=%s n_results=%d avg=%.4f gate>=%.3f reranker=%s",
+                thread_id, len(results), avg_effective, gate_threshold, has_reranker,
             )
 
-        if confidence == CONFIDENCE_LOW:
+        if len(results) < MIN_RESULTS or avg_effective < gate_threshold:
+            reasons = []
+            if len(results) < MIN_RESULTS:
+                reasons.append(f"too_few_results({len(results)}<{MIN_RESULTS})")
+            if avg_effective < gate_threshold:
+                reasons.append(f"low_score({avg_effective:.4f}<{gate_threshold:.3f})")
             logger.warning(
-                "Confidence LOW | thread=%s | n=%d avg=%.4f "
-                "(threshold=%.3f) query=%r",
-                thread_id, len(results), avg_effective, gate_threshold,
-                search_query_used[:120],
+                "Gate REJECTED | thread=%s reason=%s | query=%r",
+                thread_id, "+".join(reasons), search_query_used[:120],
             )
             await _persist_assistant(thread_id, user_id, _INSUFFICIENT_EVIDENCE_MSG, {}, [])
             return {
@@ -974,8 +988,6 @@ class AgentRuntime:
                 "thread_id": thread_id,
                 "session_id": thread_id,
             }
-        # HIGH or MEDIUM — proceed (MEDIUM with limited-evidence framing
-        # injected by step 6b below).
 
         # ── 5. AF session (cold-start hydration with before_sequence) ──────
         af_session = await _get_or_create_af_session(thread_id, user_id, user_msg)
@@ -983,23 +995,11 @@ class AgentRuntime:
         # ── 6. Inject RAG results ──────────────────────────────────────────
         rag_provider.store_results(af_session, results)
 
-        # ── 6a. Limited-evidence note (MEDIUM tier only) ──────────────────
-        if confidence == CONFIDENCE_MEDIUM and hasattr(
-            rag_provider, "store_limited_evidence_note"
-        ):
-            try:
-                rag_provider.store_limited_evidence_note(
-                    af_session, _LIMITED_EVIDENCE_NOTE,
-                )
-                logger.info(
-                    "AgentRuntime: MEDIUM confidence — limited-evidence note "
-                    "injected | thread=%s avg=%.4f",
-                    thread_id, avg_effective,
-                )
-            except Exception:
-                logger.exception(
-                    "AgentRuntime: limited-evidence injection failed (non-fatal)",
-                )
+        # NOTE: a "limited evidence" hedging path for borderline retrieval
+        # was considered and rolled back after audit. For field-tech use,
+        # answer-with-caveat is unsafe — technicians act on the answer
+        # regardless of the caveat. The binary gate above is the right
+        # safety stance.
 
         # ── 6b. Specificity-ambiguity disambiguation check ─────────────────
         # Defensive: if anything in the disambiguation logic fails, log and
@@ -1221,24 +1221,26 @@ class AgentRuntime:
             yield _sse_data("[DONE]")
             return
  
-        # ── 4. CONFIDENCE TIER ─────────────────────────────────────────────
-        # 3-tier: HIGH = answer; MEDIUM = answer with hedging or refuse;
-        # LOW = refuse outright. See assess_confidence() for thresholds.
-        confidence, avg_effective, gate_threshold = assess_confidence(results)
+        # ── 4. GATE (binary, safety-critical) ──────────────────────────────
+        # See run_once for rationale: hedging answers on borderline content
+        # are unsafe with field technicians.
+        avg_effective, gate_threshold, has_reranker = _compute_gate(results)
 
         if TRACE_MODE:
             logger.info(
-                "TRACE | thread=%s n_results=%d avg=%.4f confidence=%s "
-                "(threshold=%.3f)",
-                thread_id, len(results), avg_effective, confidence, gate_threshold,
+                "TRACE | thread=%s n_results=%d avg=%.4f gate>=%.3f reranker=%s",
+                thread_id, len(results), avg_effective, gate_threshold, has_reranker,
             )
 
-        if confidence == CONFIDENCE_LOW:
+        if len(results) < MIN_RESULTS or avg_effective < gate_threshold:
+            reasons = []
+            if len(results) < MIN_RESULTS:
+                reasons.append(f"too_few_results({len(results)}<{MIN_RESULTS})")
+            if avg_effective < gate_threshold:
+                reasons.append(f"low_score({avg_effective:.4f}<{gate_threshold:.3f})")
             logger.warning(
-                "Confidence LOW | thread=%s | n=%d avg=%.4f "
-                "(threshold=%.3f) query=%r",
-                thread_id, len(results), avg_effective, gate_threshold,
-                search_query_used[:120],
+                "Gate REJECTED | thread=%s reason=%s | query=%r",
+                thread_id, "+".join(reasons), search_query_used[:120],
             )
             await _persist_assistant(thread_id, user_id, _INSUFFICIENT_EVIDENCE_MSG, {}, [])
             yield _sse_data(_INSUFFICIENT_EVIDENCE_MSG)
@@ -1246,31 +1248,12 @@ class AgentRuntime:
             yield _sse_event("meta", json.dumps(meta, ensure_ascii=False))
             yield _sse_data("[DONE]")
             return
-        # HIGH or MEDIUM — proceed.
 
         # ── 5. AF session (cold-start hydration with before_sequence) ──────
         af_session = await _get_or_create_af_session(thread_id, user_id, user_msg)
 
         # ── 6. Inject RAG results ──────────────────────────────────────────
         rag_provider.store_results(af_session, results)
-
-        # ── 6a. Limited-evidence note (MEDIUM tier only) ──────────────────
-        if confidence == CONFIDENCE_MEDIUM and hasattr(
-            rag_provider, "store_limited_evidence_note"
-        ):
-            try:
-                rag_provider.store_limited_evidence_note(
-                    af_session, _LIMITED_EVIDENCE_NOTE,
-                )
-                logger.info(
-                    "AgentRuntime: MEDIUM confidence — limited-evidence note "
-                    "injected | thread=%s avg=%.4f",
-                    thread_id, avg_effective,
-                )
-            except Exception:
-                logger.exception(
-                    "AgentRuntime: limited-evidence injection failed (non-fatal)",
-                )
 
         # ── 6b. Specificity-ambiguity disambiguation check (defensive) ─────
         # Wrapped in try/except so any failure in disambiguation logic does

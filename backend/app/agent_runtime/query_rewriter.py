@@ -74,6 +74,12 @@ from collections import OrderedDict  # noqa: E402
 _REWRITE_CACHE: OrderedDict[str, str] = OrderedDict()
 _REWRITE_CACHE_MAX_SIZE = 500
 
+# Hit-rate counters — exposed for observability. The cache is process-local
+# so each uvicorn worker tracks independently. Log periodically so we can
+# see in production whether the cache is actually helping.
+_CACHE_STATS = {"hits": 0, "misses": 0}
+_CACHE_LOG_EVERY = 100  # log a summary every 100 lookups
+
 
 def _hash_history_for_cache(history: list, max_chars: int) -> str:
     """Produce a stable hash of the relevant history for cache keying.
@@ -97,13 +103,29 @@ def _hash_history_for_cache(history: list, max_chars: int) -> str:
     return hashlib.sha1(("\x1f".join(parts)).encode("utf-8")).hexdigest()
 
 
+def _maybe_log_cache_stats() -> None:
+    """Periodically emit a summary of cache hit/miss rate for observability."""
+    total = _CACHE_STATS["hits"] + _CACHE_STATS["misses"]
+    if total == 0 or total % _CACHE_LOG_EVERY != 0:
+        return
+    hit_rate = 100.0 * _CACHE_STATS["hits"] / total
+    logger.info(
+        "Rewriter cache stats | hits=%d misses=%d hit_rate=%.1f%% size=%d",
+        _CACHE_STATS["hits"], _CACHE_STATS["misses"], hit_rate, len(_REWRITE_CACHE),
+    )
+
+
 def _cache_get(question: str, history: list, max_chars: int) -> str | None:
     key = _hash_history_for_cache(history, max_chars) + "|" + question.strip().lower()
     if key in _REWRITE_CACHE:
         # LRU: move to end (most recently used)
         value = _REWRITE_CACHE.pop(key)
         _REWRITE_CACHE[key] = value
+        _CACHE_STATS["hits"] += 1
+        _maybe_log_cache_stats()
         return value
+    _CACHE_STATS["misses"] += 1
+    _maybe_log_cache_stats()
     return None
 
 
@@ -117,8 +139,10 @@ def _cache_put(question: str, history: list, max_chars: int, rewritten: str) -> 
 
 
 def _cache_clear() -> None:
-    """For tests."""
+    """For tests — also resets stats so per-test counters start clean."""
     _REWRITE_CACHE.clear()
+    _CACHE_STATS["hits"] = 0
+    _CACHE_STATS["misses"] = 0
 
 
 # Stopwords used by _is_already_standalone to identify content-bearing words.

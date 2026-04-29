@@ -178,35 +178,29 @@ class TestTopicSwitchEndToEnd:
         # Current behaviour: gate rejects, canned message shown
         assert "I don't have enough evidence" in result["answer"]
 
-    def test_single_strong_chunk_proceeds_with_medium_confidence(
+    def test_single_chunk_refused_by_binary_gate(
         self, runtime, session, identity,
         mock_buffer_response, mock_persist, mock_af_session,
     ):
-        """A single strong chunk gets MEDIUM confidence — bot proceeds with
-        hedging framing instead of hard-refusing.
+        """A single chunk fails MIN_RESULTS=2 and is refused.
 
-        Behaviour change for Defect A (cold zone false negatives): we used
-        to refuse if len(results) < MIN_RESULTS, even with a high reranker
-        score. Now we proceed with a 'limited evidence' note injected so
-        the LLM either answers with hedging or refuses based on whether
-        the chunk actually contains the answer.
+        For safety-critical use we keep a strict binary gate — a hedging
+        'limited evidence' tier was considered and rolled back after
+        audit because hedging notes don't stop technicians from acting
+        on partial answers. Better to refuse and ask the user to refine.
         """
         single_chunk = [_result("strong but lonely", "M1", 3.5)]
         with patch.object(agent_module, "retrieve", return_value=single_chunk):
             result = asyncio.run(
                 runtime.run_once("tell me about Vibratium", session, identity)
             )
-        # MEDIUM tier — bot proceeds (no canned no-evidence message)
-        assert "I don't have enough evidence" not in result["answer"]
-        # The mock LLM returns its placeholder; real LLM would either
-        # answer with hedging or refuse based on chunk content.
-        assert result["answer"]
+        assert "I don't have enough evidence" in result["answer"]
 
-    def test_low_confidence_results_refused(
+    def test_two_weak_chunks_refused_by_binary_gate(
         self, runtime, session, identity,
         mock_buffer_response, mock_persist, mock_af_session,
     ):
-        """When all chunks are weak (below soft floor), still refuse."""
+        """Two chunks but average score below MIN_RERANKER_SCORE — refuse."""
         weak_chunks = [
             _result("weak 1", "M1", 1.0),
             _result("weak 2", "M2", 0.9),
