@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 _REWRITE_SYSTEM = (
     "You rewrite a user's latest question into a single standalone search query "
     "for a RAG system over PSEG technical manuals.\n\n"
-    "Decide first whether the question is a TOPIC SWITCH, a FOLLOW-UP, or a "
-    "RETURN-TO-EARLIER, then act:\n\n"
+    "Decide first whether the question is a TOPIC SWITCH, a FOLLOW-UP, a "
+    "RETURN-TO-EARLIER, or a DISAMBIGUATION REPLY, then act:\n\n"
     "TOPIC SWITCH \u2014 the question introduces a new equipment, procedure, "
     "standard, or named entity that does NOT appear in the prior turns.\n"
     "  Action: return the user's question UNCHANGED. Do NOT inject any prior "
@@ -45,6 +45,20 @@ _REWRITE_SYSTEM = (
     "  Action: rewrite to anchor on THAT EARLIER topic specifically. The most "
     "recent exchange is NOT the right anchor here \u2014 find the older mention in "
     "the conversation and use it.\n\n"
+    "DISAMBIGUATION REPLY \u2014 the user's reply is an ordinal reference like "
+    "'the 2nd one', 'second', 'option 2', 'the first', 'the latter' AND the "
+    "bot's IMMEDIATELY PRECEDING message contained a numbered or bulleted "
+    "list of options (typically a clarification question).\n"
+    "  Action: identify which item in the bot's prior list the user is "
+    "selecting, and rewrite the query to be specifically about THAT item. "
+    "Do NOT search for the literal phrase 'the 2nd one' \u2014 that will "
+    "match unrelated content with similar ordinal phrasing (e.g. '2nd "
+    "method of bolted connectors').\n"
+    "  Example:\n"
+    "    Bot prior: 'Which scenario applies? \u2022 single-phase trailer "
+    "maintenance \u2022 three-phase truck maintenance'\n"
+    "    User says: 'the 2nd one'\n"
+    "    Rewrite to: 'three-phase transformer truck maintenance procedure'\n\n"
     "Rules that apply in all cases:\n"
     "- When the conversation contains MULTIPLE distinct topics, pick the ONE "
     "topic that the new question most plausibly relates to. NEVER blend "
@@ -234,6 +248,23 @@ def _is_already_standalone(question: str) -> bool:
         # earlier exchange (otherwise retrieval may miss prior context the
         # user wants the answer extended from).
         "back to", "going back", "returning to", "coming back",
+        # ORDINAL REFERENCES TO DISAMBIGUATION OPTIONS (Round 7 fix).
+        # When the bot just asked "which scenario applies?" with bullet
+        # points, users reply with phrases like "the 2nd one", "second",
+        # "option 2", "the first". These look like they have a content
+        # word ('2nd', 'option') but the meaning is purely contextual —
+        # retrieval on these literal words finds unrelated content with
+        # the same ordinal phrasing (e.g. "2nd method of bolted
+        # connectors").  Force the rewriter to resolve the reference
+        # against the prior bot message.
+        "the 1st", "the 2nd", "the 3rd", "the 4th", "the 5th",
+        "the first", "the second", "the third", "the fourth",
+        "first one", "second one", "third one", "fourth one", "last one",
+        "option 1", "option 2", "option 3", "option 4",
+        "option a", "option b", "option c",
+        "number 1", "number 2", "number 3",
+        "the bullet", "first bullet", "second bullet",
+        "the latter", "the former",
     ]
     padded = f" {q} "
     if any(marker in padded for marker in context_markers):
