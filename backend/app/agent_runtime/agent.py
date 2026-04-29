@@ -842,19 +842,23 @@ class AgentRuntime:
         rag_provider.store_results(af_session, results)
 
         # ── 6b. Specificity-ambiguity disambiguation check ─────────────────
-        # If retrieved chunks span multiple voltage classes / equipment
-        # types / other safety-critical specifics that the user's question
-        # did not name, inject a disambiguation instruction so the LLM
-        # lists options and asks rather than picking one. Field techs work
-        # on live equipment; a wrong answer for a different voltage class
-        # can cause injury.
-        is_ambiguous, disamb_block = detect_specificity_ambiguity(question, results)
-        if is_ambiguous:
-            rag_provider.store_disambiguation_block(af_session, disamb_block)
-            logger.info(
-                "AgentRuntime: specificity ambiguity detected | thread=%s | "
-                "question=%s",
-                thread_id, question[:120],
+        # Defensive: if anything in the disambiguation logic fails, log and
+        # continue.  The user MUST get an answer; missing a disambiguation
+        # opportunity is a UX issue, but crashing the request is a P0 bug.
+        try:
+            is_ambiguous, disamb_block = detect_specificity_ambiguity(
+                question, results,
+            )
+            if is_ambiguous and hasattr(rag_provider, "store_disambiguation_block"):
+                rag_provider.store_disambiguation_block(af_session, disamb_block)
+                logger.info(
+                    "AgentRuntime: specificity ambiguity detected | thread=%s",
+                    thread_id,
+                )
+        except Exception:
+            logger.exception(
+                "AgentRuntime: disambiguation check failed (non-fatal) | thread=%s",
+                thread_id,
             )
 
         # ── 7. GENERATE (buffered) ─────────────────────────────────────────
@@ -1093,17 +1097,24 @@ class AgentRuntime:
         # ── 6. Inject RAG results ──────────────────────────────────────────
         rag_provider.store_results(af_session, results)
 
-        # ── 6b. Specificity-ambiguity disambiguation check ─────────────────
-        # Same logic as run_once — see comment there. Critical for field-
-        # tech safety: never pick one specificity when the user's Q is
-        # generic and the corpus has multiple matching scenarios.
-        is_ambiguous, disamb_block = detect_specificity_ambiguity(question, results)
-        if is_ambiguous:
-            rag_provider.store_disambiguation_block(af_session, disamb_block)
-            logger.info(
-                "AgentRuntime: specificity ambiguity detected | thread=%s | "
-                "question=%s",
-                thread_id, question[:120],
+        # ── 6b. Specificity-ambiguity disambiguation check (defensive) ─────
+        # Wrapped in try/except so any failure in disambiguation logic does
+        # NOT crash the request. Missing a disambiguation = UX issue;
+        # crashing = P0 bug. Always prefer answering over crashing.
+        try:
+            is_ambiguous, disamb_block = detect_specificity_ambiguity(
+                question, results,
+            )
+            if is_ambiguous and hasattr(rag_provider, "store_disambiguation_block"):
+                rag_provider.store_disambiguation_block(af_session, disamb_block)
+                logger.info(
+                    "AgentRuntime: specificity ambiguity detected | thread=%s",
+                    thread_id,
+                )
+        except Exception:
+            logger.exception(
+                "AgentRuntime: disambiguation check failed (non-fatal) | thread=%s",
+                thread_id,
             )
 
         # ── 7. GENERATE — stream tokens via Agent Framework ChatAgent ───────
