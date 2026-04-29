@@ -43,16 +43,32 @@ _GREETINGS = {
     "what's up", "whats up", "wassup",
 }
  
-# Acknowledgements / thank-yous / farewells
+# True acknowledgements / thank-yous / farewells — always close the turn.
 _ACKNOWLEDGEMENTS = {
-    "ok", "okay", "k", "fine", "sure", "yes", "no", "yep", "nope",
+    "ok", "okay", "k", "fine",
     "got it", "understood", "alright", "right", "cool", "great",
     "thanks", "thank you", "thank you so much", "thanks a lot",
     "thx", "ty", "appreciate it", "cheers",
     "bye", "goodbye", "bye bye", "see you", "take care",
     "that's all", "thats all", "nothing else", "no more questions",
-    "that is all", "no thanks", "no thank you",
+    "that is all",
     "good", "nice", "perfect", "awesome", "wonderful", "excellent",
+}
+
+# Affirmatives — when the bot just asked a question (e.g. "Would you like
+# the step-by-step procedure?"), these mean "yes, continue with that
+# offer". When the bot did NOT ask a question, these are just polite
+# acknowledgements.
+_AFFIRMATIVE_CONTINUE = {
+    "yes", "yep", "yeah", "yup", "yes please", "yeah please",
+    "sure", "sure please", "sure thing", "yes go ahead", "go ahead",
+    "please do", "please continue", "ok sure",
+}
+
+# Negatives — when the bot asked a question, these mean "no, don't continue".
+# Either way, route to a polite acknowledgement.
+_NEGATIVE_DECLINE = {
+    "no", "nope", "no thanks", "no thank you", "nah",
 }
  
 # Self-description questions
@@ -310,9 +326,26 @@ def _is_vague_no_history(question: str, has_history: bool) -> bool:
     return False
  
  
+def _assistant_ended_with_question(prior_text: str) -> bool:
+    """Return True if the last non-empty line of prior_text ends with '?'.
+
+    Used so the bot recognizes when 'yes'/'sure'/'yep' is the user accepting
+    an offer the bot just made (e.g. 'Would you like the step-by-step?'),
+    rather than a closing acknowledgement.
+    """
+    if not prior_text:
+        return False
+    for line in reversed(prior_text.strip().splitlines()):
+        line = line.strip().rstrip("*_`)\"' ")
+        if line:
+            return line.endswith("?")
+    return False
+
+
 def classify_intent(
     question: str,
     has_history: bool = False,
+    prior_assistant_msg: str = "",
 ) -> tuple[str, str | None]:
     """Classify user intent before retrieval.
  
@@ -341,7 +374,26 @@ def classify_intent(
         logger.info("Intent: greeting | input=%r", raw)
         return INTENT_GREETING, GREETING_RESPONSE
  
-    # 2. Exact-match acknowledgements
+    # 2a. Affirmative-continue ("yes", "sure", "yep", ...) — when the bot
+    # just asked a question (e.g. "Would you like the step-by-step?"), the
+    # user's "yes" should accept that offer and route to RAG, NOT short-
+    # circuit with a "you're welcome" close.
+    if normalized in _AFFIRMATIVE_CONTINUE:
+        if has_history and _assistant_ended_with_question(prior_assistant_msg):
+            logger.info(
+                "Intent: affirmative-continue (prior bot question detected) | input=%r",
+                raw,
+            )
+            return INTENT_TECHNICAL, None
+        logger.info("Intent: affirmative-acknowledgement | input=%r", raw)
+        return INTENT_ACKNOWLEDGEMENT, ACKNOWLEDGEMENT_RESPONSE
+
+    # 2b. Negative decline ("no", "nope", ...) — always close politely.
+    if normalized in _NEGATIVE_DECLINE:
+        logger.info("Intent: negative-acknowledgement | input=%r", raw)
+        return INTENT_ACKNOWLEDGEMENT, ACKNOWLEDGEMENT_RESPONSE
+
+    # 2c. True acknowledgements ("thanks", "bye", "got it", ...) — close.
     if normalized in _ACKNOWLEDGEMENTS:
         logger.info("Intent: acknowledgement | input=%r", raw)
         return INTENT_ACKNOWLEDGEMENT, ACKNOWLEDGEMENT_RESPONSE

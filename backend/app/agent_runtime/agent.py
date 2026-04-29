@@ -554,8 +554,22 @@ class AgentRuntime:
                 )
  
         # -- 2a. Intent classification -- short-circuit non-questions ----
+        # Load the prior assistant message so the classifier can detect
+        # "yes"/"sure" replies to a bot question ("Would you like the
+        # step-by-step?") and route them to RAG instead of short-circuiting.
         has_history = user_msg is not None and user_msg.sequence > 1
-        intent, canned = classify_intent(question, has_history=has_history)
+        prior_assistant_msg = ""
+        if has_history and is_storage_enabled() and user_msg is not None:
+            recent_for_intent = await chat_store.get_messages_for_user(
+                thread_id, user_id, max_turns=2, before_sequence=user_msg.sequence,
+            )
+            for msg in reversed(recent_for_intent):
+                if msg.role == "assistant" and msg.content:
+                    prior_assistant_msg = msg.content
+                    break
+        intent, canned = classify_intent(
+            question, has_history=has_history, prior_assistant_msg=prior_assistant_msg,
+        )
         if canned is not None:
             logger.info(
                 "Intent short-circuit | thread=%s intent=%s | question=%s",
@@ -758,8 +772,21 @@ class AgentRuntime:
                 )
  
         # -- 2a. Intent classification -- short-circuit non-questions ----
+        # Load the prior assistant message so the classifier can detect
+        # "yes"/"sure" replies to a bot question and route them to RAG.
         has_history = user_msg is not None and user_msg.sequence > 1
-        intent, canned = classify_intent(question, has_history=has_history)
+        prior_assistant_msg = ""
+        if has_history and is_storage_enabled() and user_msg is not None:
+            recent_for_intent = await chat_store.get_messages_for_user(
+                thread_id, user_id, max_turns=2, before_sequence=user_msg.sequence,
+            )
+            for msg in reversed(recent_for_intent):
+                if msg.role == "assistant" and msg.content:
+                    prior_assistant_msg = msg.content
+                    break
+        intent, canned = classify_intent(
+            question, has_history=has_history, prior_assistant_msg=prior_assistant_msg,
+        )
         if canned is not None:
             logger.info(
                 "Intent short-circuit | thread=%s intent=%s | question=%s",
