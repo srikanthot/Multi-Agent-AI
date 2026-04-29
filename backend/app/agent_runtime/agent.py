@@ -721,6 +721,12 @@ class AgentRuntime:
         user_name = identity.user_name
         thread_id = session.session_id
         parser = TagStreamParser()
+
+        # Initialize meta up-front so every error path in run_stream can safely
+        # yield the SSE 'meta' event. Otherwise paths that fire before the LLM
+        # generation (thread-not-found, intent short-circuit, retrieval error,
+        # gate-rejected) hit UnboundLocalError when they try to yield meta.
+        meta: dict = {}
  
         logger.info(
             "AgentRuntime.run_stream | thread=%s user=%s auth=%s | question=%s",
