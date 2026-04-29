@@ -220,6 +220,158 @@ def _sse_event(event_name: str, payload: str) -> str:
 # Pipeline helpers
 # ---------------------------------------------------------------------------
  
+# ---------------------------------------------------------------------------
+# Specificity detection — flag retrieval-time ambiguity for safety-critical Q's
+# ---------------------------------------------------------------------------
+# When the user's question is generic (no voltage / equipment / procedure
+# named) but the retrieved chunks contain MULTIPLE distinct specific
+# scenarios (e.g. content for 15 kV, 25 kV, AND 69 kV), the bot must NOT
+# pick one and answer — it must list the options and ask which applies.
+# Field technicians work on live equipment; a wrong answer for a different
+# voltage class can cause injury.
+#
+# We scan retrieved chunks for specificity markers (voltage values, named
+# equipment types, AC/DC, indoor/outdoor, energized/de-energized).  If we
+# find 2+ distinct values for any marker AND the user did not name one of
+# them, we inject an explicit disambiguation instruction into the LLM
+# context.
+
+# Voltage in "X kV" or "X V" form. Captures the numeric prefix for grouping.
+_VOLTAGE_RE = re.compile(
+    r"(?<![\w.])(\d{1,3}(?:[.,]\d{1,2})?)\s*(kv|kilovolts?|volts?|v)(?![\w])",
+    re.IGNORECASE,
+)
+
+# Equipment-class markers — broad PSEG / utility vocabulary.
+# Keys are the user-facing labels; values are regexes for the chunk text.
+_EQUIPMENT_CLASSES: dict[str, re.Pattern] = {
+    "pad-mount transformer":  re.compile(r"\bpad[-\s]?mount(?:ed)?\b", re.IGNORECASE),
+    "pole-mount transformer": re.compile(r"\bpole[-\s]?mount(?:ed)?\b", re.IGNORECASE),
+    "oil-filled":             re.compile(r"\boil[-\s]?filled\b", re.IGNORECASE),
+    "dry-type":               re.compile(r"\bdry[-\s]?type\b", re.IGNORECASE),
+    "SF6 breaker":            re.compile(r"\bsf\s*6\b", re.IGNORECASE),
+    "vacuum breaker":         re.compile(r"\bvacuum\s+(?:circuit\s+)?breaker", re.IGNORECASE),
+    "indoor":                 re.compile(r"\bindoor\b", re.IGNORECASE),
+    "outdoor":                re.compile(r"\boutdoor\b", re.IGNORECASE),
+    "AC system":              re.compile(r"\b(?:alternating\s+current|ac\s+(?:system|service|supply|power))\b", re.IGNORECASE),
+    "DC system":              re.compile(r"\b(?:direct\s+current|\d+\s*v?dc\b|dc\s+(?:system|service|supply|power))\b", re.IGNORECASE),
+    "energized":              re.compile(r"\benergized\b", re.IGNORECASE),
+    "de-energized":           re.compile(r"\bde[-\s]?energized\b", re.IGNORECASE),
+    "single-phase":           re.compile(r"\bsingle[-\s]?phase\b", re.IGNORECASE),
+    "three-phase":            re.compile(r"\bthree[-\s]?phase\b|\b3[-\s]?phase\b", re.IGNORECASE),
+    "overhead":               re.compile(r"\boverhead\b", re.IGNORECASE),
+    "underground":            re.compile(r"\bunderground\b", re.IGNORECASE),
+}
+
+
+def _voltage_buckets(text: str) -> set[str]:
+    """Return the set of distinct voltage levels mentioned in text.
+
+    We bucket near-equal values together (e.g. '120 V' and '120/240 V' both
+    bucket to '120 V'). This avoids flagging trivial numeric differences as
+    multiple specifics.
+    """
+    out: set[str] = set()
+    for m in _VOLTAGE_RE.finditer(text):
+        try:
+            num = float(m.group(1).replace(",", "."))
+        except ValueError:
+            continue
+        unit = m.group(2).lower()
+        # Normalize: treat 'kV' and 'kilovolts' as kV; 'V' and 'volts' as V.
+        is_kv = unit.startswith("k") or "kilo" in unit
+        bucket = f"{num:g} kV" if is_kv else f"{num:g} V"
+        out.add(bucket)
+    return out
+
+
+def _equipment_classes_in_text(text: str) -> set[str]:
+    """Return the set of equipment-class labels mentioned in text."""
+    out: set[str] = set()
+    for label, pat in _EQUIPMENT_CLASSES.items():
+        if pat.search(text):
+            out.add(label)
+    return out
+
+
+def detect_specificity_ambiguity(
+    question: str,
+    chunks: list[dict],
+) -> tuple[bool, str]:
+    """Decide whether retrieved chunks span multiple specifics that the
+    user's question did not anchor to.
+
+    Returns (is_ambiguous, formatted_options_block).
+
+    is_ambiguous=True when:
+      - chunks mention 2+ distinct voltage levels, OR
+      - chunks mention 2+ conflicting equipment classes
+        (e.g. pad-mount AND pole-mount; indoor AND outdoor; AC AND DC;
+        energized AND de-energized)
+      AND the user's question does not name a voltage or equipment class
+      from the set found in the chunks.
+
+    formatted_options_block is the human-readable list of options to inject
+    into the system prompt. Empty string when not ambiguous.
+    """
+    if not chunks:
+        return False, ""
+
+    # Aggregate over all chunk content
+    all_text = "\n".join(c.get("content") or "" for c in chunks)
+    chunk_voltages = _voltage_buckets(all_text)
+    chunk_equip = _equipment_classes_in_text(all_text)
+
+    q_voltages = _voltage_buckets(question)
+    q_equip = _equipment_classes_in_text(question)
+
+    options: list[str] = []
+
+    # Voltage ambiguity — chunks span 2+ voltages, question names none of them.
+    if len(chunk_voltages) >= 2 and not (q_voltages & chunk_voltages):
+        # Sort voltages numerically for consistent ordering
+        def _voltage_sort_key(v: str) -> tuple[int, float]:
+            num_str, unit = v.split()
+            num = float(num_str)
+            return (0 if unit == "kV" else 1, num)
+        sorted_v = sorted(chunk_voltages, key=_voltage_sort_key)
+        options.append("Voltage levels mentioned: " + ", ".join(sorted_v))
+
+    # Equipment-class ambiguity — chunks span conflicting pairs.
+    _CONFLICT_PAIRS = [
+        ("pad-mount transformer", "pole-mount transformer"),
+        ("oil-filled", "dry-type"),
+        ("SF6 breaker", "vacuum breaker"),
+        ("indoor", "outdoor"),
+        ("AC system", "DC system"),
+        ("energized", "de-energized"),
+        ("single-phase", "three-phase"),
+        ("overhead", "underground"),
+    ]
+    for a, b in _CONFLICT_PAIRS:
+        if a in chunk_equip and b in chunk_equip:
+            # Skip if user named one of them
+            if a in q_equip or b in q_equip:
+                continue
+            options.append(f"Equipment / service type: {a} vs {b}")
+
+    if not options:
+        return False, ""
+
+    block = (
+        "DISAMBIGUATION REQUIRED — the retrieved manual content covers "
+        "multiple specific scenarios that the user's question did NOT name:\n"
+        + "\n".join(f"  • {o}" for o in options)
+        + "\n\nDO NOT pick one and answer. The procedure, value, or requirement "
+        "may differ between these. Field technicians work on live equipment; "
+        "a wrong answer for a different scenario can cause injury.\n\n"
+        "INSTEAD: List the distinct scenarios above as bullet points, then "
+        "ask the user which one applies to their specific work. Example: "
+        "'I see content for {options}. Which one applies to your work?'"
+    )
+    return True, block
+
+
 def _compute_gate(results: list[dict]) -> tuple[float, float, bool]:
     """Return (avg_effective_score, gate_threshold, has_reranker).
  
@@ -688,7 +840,23 @@ class AgentRuntime:
  
         # ── 6. Inject RAG results ──────────────────────────────────────────
         rag_provider.store_results(af_session, results)
- 
+
+        # ── 6b. Specificity-ambiguity disambiguation check ─────────────────
+        # If retrieved chunks span multiple voltage classes / equipment
+        # types / other safety-critical specifics that the user's question
+        # did not name, inject a disambiguation instruction so the LLM
+        # lists options and asks rather than picking one. Field techs work
+        # on live equipment; a wrong answer for a different voltage class
+        # can cause injury.
+        is_ambiguous, disamb_block = detect_specificity_ambiguity(question, results)
+        if is_ambiguous:
+            rag_provider.store_disambiguation_block(af_session, disamb_block)
+            logger.info(
+                "AgentRuntime: specificity ambiguity detected | thread=%s | "
+                "question=%s",
+                thread_id, question[:120],
+            )
+
         # ── 7. GENERATE (buffered) ─────────────────────────────────────────
         # Always pass the original question to the LLM — search_query (rewritten)
         # is only used for retrieval. The LLM must answer the user's actual words.
@@ -924,7 +1092,20 @@ class AgentRuntime:
  
         # ── 6. Inject RAG results ──────────────────────────────────────────
         rag_provider.store_results(af_session, results)
- 
+
+        # ── 6b. Specificity-ambiguity disambiguation check ─────────────────
+        # Same logic as run_once — see comment there. Critical for field-
+        # tech safety: never pick one specificity when the user's Q is
+        # generic and the corpus has multiple matching scenarios.
+        is_ambiguous, disamb_block = detect_specificity_ambiguity(question, results)
+        if is_ambiguous:
+            rag_provider.store_disambiguation_block(af_session, disamb_block)
+            logger.info(
+                "AgentRuntime: specificity ambiguity detected | thread=%s | "
+                "question=%s",
+                thread_id, question[:120],
+            )
+
         # ── 7. GENERATE — stream tokens via Agent Framework ChatAgent ───────
         # Always pass the original question to the LLM — search_query (rewritten)
         # is only used for retrieval. The LLM must answer the user's actual words.

@@ -37,6 +37,14 @@ _PENDING_RESULTS_KEY = "_rag_pending_results"
 # reformat its prior answer from conversation history, overriding the normal
 # grounding rules that require numbered context blocks.
 _CONDENSATION_MODE_KEY = "_rag_condensation_mode"
+
+# Holds a disambiguation instruction string for the current turn. Populated
+# by AgentRuntime when retrieved chunks span multiple specifics that the
+# user's question did not name (e.g. multiple voltage classes, indoor vs
+# outdoor, energized vs de-energized). When set, it is appended AFTER the
+# numbered context blocks so the LLM treats it as authoritative guidance
+# overriding any default behaviour.
+_DISAMBIGUATION_BLOCK_KEY = "_rag_disambiguation_block"
  
  
 class RagContextProvider(BaseContextProvider):
@@ -63,7 +71,22 @@ class RagContextProvider(BaseContextProvider):
         reformat — even on cold start when InMemoryHistory is empty.
         """
         session.state[_CONDENSATION_MODE_KEY] = prior_answer or True
- 
+
+    def store_disambiguation_block(
+        self, session: AgentSession, block: str,
+    ) -> None:
+        """Attach a disambiguation instruction for this turn.
+
+        Called by AgentRuntime when retrieved chunks span multiple specific
+        scenarios (different voltage classes, equipment types, etc.) that the
+        user's question did not name. The block is appended AFTER the
+        numbered context blocks in before_run() so the LLM is forced to
+        list options and ask which the user means rather than picking one
+        and answering — which can be unsafe in field-tech use.
+        """
+        if block:
+            session.state[_DISAMBIGUATION_BLOCK_KEY] = block
+
     async def before_run(
         self,
         *,
@@ -127,21 +150,41 @@ class RagContextProvider(BaseContextProvider):
             )
             return
  
+        # Pull disambiguation block (if any) and pop it so it never leaks
+        # across turns regardless of whether we have results.
+        disambiguation_block: str = session.state.pop(_DISAMBIGUATION_BLOCK_KEY, "")
+
         if not results:
             return
- 
+
         context_blocks = build_context_blocks(results)
-        context.extend_instructions(
-            self.source_id,
-            (
-                "Context (retrieved from PSEG technical manuals):\n\n"
-                f"{context_blocks}\n\n"
-                "Answer the question using ONLY the context above. "
-                "When the context covers the topic — even partially — provide a "
-                "complete answer from the available information. "
-                "Reference each source by its [N] label inline."
-            ),
+        base_instruction = (
+            "Context (retrieved from PSEG technical manuals):\n\n"
+            f"{context_blocks}\n\n"
+            "Answer the question using ONLY the context above. "
+            "When the context covers the topic — even partially — provide a "
+            "complete answer from the available information. "
+            "Reference each source by its [N] label inline."
         )
+
+        if disambiguation_block:
+            # Append AFTER the numbered context blocks so the LLM treats
+            # the disambiguation guidance as authoritative for THIS turn,
+            # overriding the default "answer the question" behaviour.
+            instruction = (
+                f"{base_instruction}\n\n"
+                "═══ TURN-SPECIFIC DISAMBIGUATION GUIDANCE ═══\n"
+                f"{disambiguation_block}\n"
+                "═══════════════════════════════════════════════"
+            )
+            logger.info(
+                "RagContextProvider: disambiguation block injected — chunks "
+                "span multiple specifics not named in the question"
+            )
+        else:
+            instruction = base_instruction
+
+        context.extend_instructions(self.source_id, instruction)
  
         if TRACE_MODE:
             chunk_summary = "  |  ".join(
