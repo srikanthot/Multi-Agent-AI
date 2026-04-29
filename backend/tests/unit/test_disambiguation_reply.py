@@ -104,3 +104,109 @@ class TestProductionScenario:
     def test_option_2_forces_rewrite(self):
         """Alternative phrasing some users prefer."""
         assert _is_already_standalone("option 2") is False
+
+
+# ---------------------------------------------------------------------------
+# Round 8 — validator must accept the rewriter's substantive rewrite.
+# ---------------------------------------------------------------------------
+# Round 7 made the rewriter run for "the 2nd one" (good). But the
+# VALIDATOR was rejecting the rewriter's correct output ("three-phase
+# transformer truck maintenance procedure") because it shared no
+# substantive words with the original "the 2nd one" {"2nd", "one"}.
+# Round 8: treat ordinal pointer tokens as stopwords in the validator
+# so the shared-word check doesn't reject the (correct) rewrite.
+# ---------------------------------------------------------------------------
+
+
+from app.agent_runtime.query_rewriter import _is_valid_rewrite
+
+
+class TestValidatorAcceptsDisambiguationRewrites:
+    """Round 8: validator must NOT reject good disambiguation rewrites."""
+
+    @pytest.mark.parametrize(
+        "original,rewritten",
+        [
+            (
+                "the 2nd one",
+                "three-phase transformer truck maintenance procedure",
+            ),
+            (
+                "the 1st one",
+                "single-phase transformer trailer maintenance procedure",
+            ),
+            (
+                "second",
+                "three-phase transformer truck maintenance",
+            ),
+            (
+                "second one",
+                "three-phase transformer truck maintenance procedure",
+            ),
+            (
+                "option 2",
+                "three-phase transformer truck maintenance",
+            ),
+            (
+                "the latter",
+                "three-phase transformer truck maintenance procedure",
+            ),
+            (
+                "the former",
+                "single-phase transformer trailer maintenance",
+            ),
+            (
+                "first bullet",
+                "single-phase transformer trailer maintenance procedure",
+            ),
+            (
+                "second bullet",
+                "three-phase transformer truck maintenance procedure",
+            ),
+            (
+                "the 3rd",
+                "26.4 kV substation grounding requirements",
+            ),
+        ],
+    )
+    def test_disambiguation_rewrite_accepted(self, original, rewritten):
+        """The exact production failure: rewriter produces correct content
+        but validator rejects because no shared substantive word.
+        Round 8 fix: ordinal pointer words are stopwords in validator."""
+        assert _is_valid_rewrite(original, rewritten) is True, (
+            f"Validator should ACCEPT this rewrite of {original!r} → "
+            f"{rewritten!r}; current behaviour rejects it because no "
+            f"shared substantive word"
+        )
+
+
+class TestValidatorStillRejectsTrueDrift:
+    """REGRESSION GUARD: the validator must still reject genuine drift —
+    rewrites that abandon the user's actual topic for an unrelated one."""
+
+    @pytest.mark.parametrize(
+        "original,bad_rewrite",
+        [
+            (
+                "tell me about Vibratium",
+                "fire prevention dust labels for customers",
+            ),
+            (
+                "explain GDS ownership",
+                "transformer maintenance schedule for outdoor switchgear",
+            ),
+            (
+                "what is the procedure for transformer maintenance",
+                "gas pipe sizing for residential service",
+            ),
+        ],
+    )
+    def test_real_drift_still_rejected(self, original, bad_rewrite):
+        """Rewrites that completely abandon the user's substantive topic
+        must still be rejected. The Round 8 stopword expansion only
+        covers VACUOUS originals (yes, no, the 2nd one). For substantive
+        originals, drift detection still applies."""
+        assert _is_valid_rewrite(original, bad_rewrite) is False, (
+            f"Validator must STILL reject genuine drift: {original!r} → "
+            f"{bad_rewrite!r} — these share no substantive words"
+        )

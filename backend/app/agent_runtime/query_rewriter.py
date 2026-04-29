@@ -307,7 +307,12 @@ def _is_valid_rewrite(original: str, rewritten: str) -> bool:
         return False
     if len(rewritten) > max(len(original) * 4, 400):
         return False
-    # Must share at least one non-trivial word with the original
+    # Must share at least one non-trivial word with the original.
+    # When the original is a "vacuous" reference (an affirmative, an
+    # ordinal pointer like "the 2nd one"), the rewriter MUST replace it
+    # entirely with the prior topic — there's nothing substantive to share.
+    # Treat those vacuous tokens as stopwords so the shared-word check
+    # doesn't reject the (correct) substantive rewrite.
     _STOPWORDS = {
         "a", "an", "the", "is", "are", "was", "were", "be", "been",
         "what", "how", "why", "when", "where", "who", "which",
@@ -315,10 +320,19 @@ def _is_valid_rewrite(original: str, rewritten: str) -> bool:
         "to", "of", "in", "on", "at", "for", "with", "and", "or",
         "me", "my", "i", "you", "your", "it", "its", "this", "that",
         "give", "tell", "show", "explain", "please", "about",
-        # Affirmatives — when the original is just "yes"/"sure", the
-        # rewriter MUST replace it entirely with the prior topic. Treat
-        # as stopwords so the shared-word check doesn't reject the rewrite.
+        # Affirmatives — "yes" / "sure" / etc. (Defect D fix).
         "yes", "no", "yep", "nope", "yeah", "yup", "sure", "ok", "okay",
+        # Ordinal references — "the 2nd one", "second", "option 2", etc.
+        # The rewriter resolves these against the bot's prior message
+        # (Round 7 + 8 fix). Treat the ordinal pointer words as vacuous
+        # so the rewrite (which won't share these tokens) isn't rejected.
+        "one", "two",
+        "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th",
+        "first", "second", "third", "fourth", "fifth",
+        "sixth", "seventh", "eighth", "ninth", "tenth",
+        "last", "latter", "former",
+        "option", "options", "bullet", "bullets", "item", "items",
+        "number", "choice", "choices",
     }
     orig_words = {w for w in re.findall(r"[a-z0-9]+", original.lower()) if w not in _STOPWORDS and len(w) > 2}
     rew_words = {w for w in re.findall(r"[a-z0-9]+", rewritten.lower()) if w not in _STOPWORDS and len(w) > 2}
