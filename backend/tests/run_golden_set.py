@@ -69,8 +69,12 @@ GOLDEN = HERE / "golden_set.json"
 RESULTS_ROOT = HERE / "golden_results"
 
 DEFAULT_BASE_URL = "http://localhost:8000"
-CHAT_ENDPOINT = "/chat"
-CHAT_STREAM_ENDPOINT = "/chat/stream"
+# Use /chat/stream because the frontend uses it and it is the actively-
+# maintained endpoint. The non-streaming /chat endpoint may have stale
+# dependency wiring on some deployments. /chat/stream returns SSE which
+# we parse below.
+CHAT_ENDPOINT = "/chat/stream"
+CONVERSATIONS_ENDPOINT = "/conversations"
 
 # Markers that indicate the bot refused to answer / had no evidence
 _NO_EVIDENCE_MARKERS = [
@@ -222,39 +226,115 @@ def normalize_test(test: dict) -> TestSpec:
 # Backend interaction
 # ---------------------------------------------------------------------------
 
+_DEBUG_HEADERS = {"X-Debug-User-Id": "golden-set-runner"}
+
+
+async def create_conversation(
+    client: httpx.AsyncClient,
+    base_url: str,
+) -> str:
+    """POST /conversations to create a new thread and return its thread_id.
+
+    Pre-creating means the runner controls the thread_id and can re-use it
+    across multi-turn questions. Mirrors what the frontend does.
+    """
+    resp = await client.post(
+        f"{base_url}{CONVERSATIONS_ENDPOINT}",
+        json={"title": None},
+        headers=_DEBUG_HEADERS,
+        timeout=httpx.Timeout(30.0),
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"HTTP {resp.status_code} from {CONVERSATIONS_ENDPOINT} | body={resp.text[:500]}"
+        )
+    data = resp.json()
+    thread_id = data.get("thread_id") or data.get("session_id")
+    if not thread_id:
+        raise RuntimeError(
+            f"create_conversation returned no thread_id | body={resp.text[:500]}"
+        )
+    return thread_id
+
+
 async def call_chat_endpoint(
     client: httpx.AsyncClient,
     base_url: str,
     question: str,
     session_id: Optional[str],
 ) -> dict:
-    """POST a single question to the backend's non-streaming /chat endpoint.
+    """POST a single question to /chat/stream and parse the SSE response.
 
-    Returns dict with: answer, session_id, citations.
+    Returns dict with: answer (str), session_id (str), citations (list).
 
-    On HTTP error responses the response body is included in the raised
-    exception so failures.txt records what the server actually said,
-    not just the status code.
+    SSE event handling:
+      - 'data: <text>'         — partial answer text; concatenated
+      - 'event: answer_replaced' / 'data: <text>' — final cleaned answer; replaces concat
+      - 'event: citations' / 'data: <json>' — citations payload
+      - 'event: meta' / 'data: <json>' — meta payload (ignored here)
+      - 'event: ping' — keepalive (ignored)
+      - 'data: [DONE]' — end of stream
+
+    On HTTP error response (4xx/5xx) the response body is captured and
+    raised so failures.txt records WHY the server rejected the request.
     """
-    payload: dict[str, Any] = {"question": question}
-    if session_id:
-        payload["session_id"] = session_id
-    # Include a debug user header so DEBUG_MODE backends route per-user
-    # history correctly; ignored when DEBUG_MODE=false.
-    headers = {"X-Debug-User-Id": "golden-set-runner"}
-    resp = await client.post(
+    payload: dict[str, Any] = {"question": question, "session_id": session_id}
+
+    answer_parts: list[str] = []
+    final_answer: Optional[str] = None
+    citations: list[dict] = []
+
+    async with client.stream(
+        "POST",
         f"{base_url}{CHAT_ENDPOINT}",
         json=payload,
-        headers=headers,
-        timeout=httpx.Timeout(180.0),
-    )
-    if resp.status_code >= 400:
-        # Surface the response body so the diagnosis is in failures.txt
-        body_preview = resp.text[:1000]
-        raise RuntimeError(
-            f"HTTP {resp.status_code} from {CHAT_ENDPOINT} | body={body_preview}"
-        )
-    return resp.json()
+        headers=_DEBUG_HEADERS,
+        timeout=httpx.Timeout(300.0),
+    ) as resp:
+        if resp.status_code >= 400:
+            body = await resp.aread()
+            preview = body.decode("utf-8", errors="replace")[:1000]
+            raise RuntimeError(
+                f"HTTP {resp.status_code} from {CHAT_ENDPOINT} | body={preview}"
+            )
+
+        current_event: Optional[str] = None
+        async for raw_line in resp.aiter_lines():
+            line = raw_line.rstrip("\r")
+            if not line:
+                # blank line = event boundary; reset event name
+                current_event = None
+                continue
+            if line.startswith("event:"):
+                current_event = line[len("event:"):].strip()
+                continue
+            if line.startswith("data:"):
+                data = line[len("data:"):].strip()
+                if data == "[DONE]":
+                    break
+                # Newlines in data are escaped as \n by the backend
+                data_unescaped = data.replace("\\n", "\n")
+                if current_event == "citations":
+                    try:
+                        payload_obj = json.loads(data_unescaped)
+                        citations = payload_obj.get("citations") or []
+                    except json.JSONDecodeError:
+                        pass
+                elif current_event == "answer_replaced":
+                    final_answer = data_unescaped
+                elif current_event == "meta":
+                    pass  # not scored here
+                elif current_event == "ping":
+                    pass
+                else:
+                    answer_parts.append(data_unescaped)
+
+    answer = final_answer if final_answer is not None else "".join(answer_parts)
+    return {
+        "answer": answer,
+        "session_id": session_id,
+        "citations": citations,
+    }
 
 
 async def run_test(
@@ -262,7 +342,13 @@ async def run_test(
     client: httpx.AsyncClient,
     base_url: str,
 ) -> TestResult:
-    """Run all turns of a test sequentially, score the final answer."""
+    """Run all turns of a test sequentially, score the final answer.
+
+    Multi-turn flow (mirrors what the frontend does):
+      1. POST /conversations to create a fresh thread, get thread_id
+      2. For each turn, POST /chat/stream with that thread_id as session_id
+      3. Accumulate the streamed answer and any citations from the LAST turn
+    """
     start = time.monotonic()
     session_id: Optional[str] = None
     history: list[dict] = []
@@ -271,9 +357,11 @@ async def run_test(
     error: Optional[str] = None
 
     try:
+        # Pre-create a conversation so we control session_id across turns
+        session_id = await create_conversation(client, base_url)
+
         for q in spec.questions:
             response = await call_chat_endpoint(client, base_url, q, session_id)
-            session_id = response.get("session_id") or response.get("thread_id") or session_id
             answer = response.get("answer", "")
             history.append({"role": "user", "content": q})
             history.append({"role": "assistant", "content": answer})
