@@ -231,16 +231,29 @@ async def call_chat_endpoint(
     """POST a single question to the backend's non-streaming /chat endpoint.
 
     Returns dict with: answer, session_id, citations.
+
+    On HTTP error responses the response body is included in the raised
+    exception so failures.txt records what the server actually said,
+    not just the status code.
     """
     payload: dict[str, Any] = {"question": question}
     if session_id:
         payload["session_id"] = session_id
+    # Include a debug user header so DEBUG_MODE backends route per-user
+    # history correctly; ignored when DEBUG_MODE=false.
+    headers = {"X-Debug-User-Id": "golden-set-runner"}
     resp = await client.post(
         f"{base_url}{CHAT_ENDPOINT}",
         json=payload,
+        headers=headers,
         timeout=httpx.Timeout(180.0),
     )
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        # Surface the response body so the diagnosis is in failures.txt
+        body_preview = resp.text[:1000]
+        raise RuntimeError(
+            f"HTTP {resp.status_code} from {CHAT_ENDPOINT} | body={body_preview}"
+        )
     return resp.json()
 
 
