@@ -270,6 +270,35 @@ def _is_vague_no_history(question: str, has_history: bool) -> bool:
     ]
     if any(re.match(p, q) for p in vague_patterns):
         return True
+
+    # ── Implicit-reference vague questions ──
+    # These match the C8 user-reported pattern: short questions with implicit
+    # demonstratives (this/that/here/there) and a generic noun, where the
+    # user has not specified the equipment, voltage, or location enough for
+    # retrieval to land on the right manual section.
+    #
+    # Only fire when meaningful words <= 4 — protects specific questions like
+    # "Can I install a 15 kV pad-mount transformer here?" from being caught.
+    if meaningful <= 4:
+        implicit_vague_patterns = [
+            # "Can I install/use/put/connect this/the [thing] here/there/inside?"
+            # "Can we ..."
+            r"^can\s+(i|we)\s+(install|use|put|set|place|run|connect|do|build|operate)\s+(this|that|the|a|an|my)\b",
+            # "Can the/this [thing] go/be/fit somewhere?"
+            r"^can\s+(the|this|that|my|a|an)\s+\w+(\s+\w+){0,2}\s+(go|be|fit)\b",
+            # "Is this/that [thing] (ok|okay|acceptable|allowed|fine|good|right|enough)?"
+            r"^is\s+(this|that|it|the)\b.*\b(ok|okay|acceptable|allowed|fine|good|right|enough|safe|proper|valid|correct)\b\s*\??$",
+            # "What [generic-noun] do I/we need?" / "What [generic-noun] should I use?"
+            # Catches: "What SCADA do I need?", "What breaker should I use?"
+            r"^what\s+\w+(\s+\w+){0,1}\s+(do\s+(i|we)\s+)?need\b",
+            r"^what\s+\w+(\s+\w+){0,1}\s+should\s+(i|we)\s+(use|do|get|pick|choose|install)\b",
+            # "Can I install/put X here?" / "Can we install Y there?"
+            r"^can\s+(i|we)\s+(install|put|use|set|place)\s+\w+(\s+\w+){0,2}\s+(here|there|inside|outside|in\s+(this|that|here|there))\??$",
+            # "Where do I/we put X?" — implicit-location question
+            r"^where\s+(do|should|can)\s+(i|we)\s+\w+\s+",
+        ]
+        if any(re.match(p, q) for p in implicit_vague_patterns):
+            return True
  
     # Pronoun-heavy with no history (first message in conversation)
     pronoun_patterns = [
