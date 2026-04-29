@@ -456,6 +456,90 @@ def _gate_passes(results: list[dict]) -> bool:
     return avg >= threshold
 
 
+# ---------------------------------------------------------------------------
+# Confidence tiers — replaces the binary gate for safety-critical use
+# ---------------------------------------------------------------------------
+# The original binary gate (avg >= MIN_RERANKER_SCORE) refuses borderline
+# content (1.5-1.8 range) even when it's relevant. Field technicians then
+# see "no evidence" for content that IS in the manual (Defect A — cold
+# zone false negatives).
+#
+# Three tiers:
+#
+#   HIGH   (avg >= MIN_RERANKER_SCORE, default 1.8): confident match.
+#          Normal flow — bot answers using context blocks.
+#
+#   MEDIUM (avg in [SOFT_GATE_FLOOR, MIN_RERANKER_SCORE], default 1.4-1.8):
+#          relevant but borderline. Bot still gets the chunks, but the
+#          system context is annotated with "limited evidence" framing,
+#          so the LLM either answers with appropriate hedging OR refuses
+#          if the chunks don't actually contain the answer.
+#
+#   LOW    (avg < SOFT_GATE_FLOOR, default 1.4): no real match.
+#          Bot refuses with a helpful message asking for more context.
+
+# Soft-gate floor — content below this is genuinely irrelevant and should
+# be refused. Between SOFT_GATE_FLOOR and MIN_RERANKER_SCORE is the
+# "borderline" zone where chunks pass through but with caveats.
+# Reranker scores are on a 0-4 scale; 1.4 is "weakly relevant".
+_SOFT_GATE_FLOOR_RERANKER = 1.4
+_SOFT_GATE_FLOOR_RRF = 0.012  # RRF score equivalent floor
+
+# Minimum chunks for HIGH tier — below this even a high-scoring single
+# chunk is not enough to be confident.
+_HIGH_TIER_MIN_RESULTS = MIN_RESULTS  # 2
+
+
+CONFIDENCE_HIGH = "HIGH"
+CONFIDENCE_MEDIUM = "MEDIUM"
+CONFIDENCE_LOW = "LOW"
+
+
+def assess_confidence(results: list[dict]) -> tuple[str, float, float]:
+    """Return (confidence_tier, avg_score, gate_threshold).
+
+    Tier semantics:
+      HIGH   — bot answers normally
+      MEDIUM — bot gets chunks but with "limited evidence" framing
+      LOW    — bot refuses
+
+    Decision uses MIN_RESULTS for count gating (a single chunk, however
+    high-scoring, is never HIGH because we want corroborating evidence).
+    """
+    if not results:
+        return CONFIDENCE_LOW, 0.0, MIN_RERANKER_SCORE
+
+    avg, threshold, has_reranker = _compute_gate(results)
+    soft_floor = _SOFT_GATE_FLOOR_RERANKER if has_reranker else _SOFT_GATE_FLOOR_RRF
+
+    if len(results) < _HIGH_TIER_MIN_RESULTS:
+        # Too few chunks for confident answer, but maybe enough for
+        # borderline if the score is OK.
+        if avg >= soft_floor:
+            return CONFIDENCE_MEDIUM, avg, threshold
+        return CONFIDENCE_LOW, avg, threshold
+
+    if avg >= threshold:
+        return CONFIDENCE_HIGH, avg, threshold
+    if avg >= soft_floor:
+        return CONFIDENCE_MEDIUM, avg, threshold
+    return CONFIDENCE_LOW, avg, threshold
+
+
+_LIMITED_EVIDENCE_NOTE = (
+    "LIMITED EVIDENCE NOTICE — the retrieved manual content is only weakly "
+    "matched to your question (borderline relevance). For this turn:\n"
+    "  • If the context above clearly contains the answer, provide it but "
+    "explicitly note 'based on partially-matching content' at the start.\n"
+    "  • If the context does NOT clearly answer the question, REFUSE: say "
+    "'The manual content I found is only loosely related to your question. "
+    "Could you provide more detail — e.g. equipment name, voltage, or the "
+    "specific procedure you need?'\n"
+    "  • Field technicians act on what you say; do NOT answer if you are "
+    "not sure the context contains the right information."
+)
+
+
 async def _retrieve_with_fallback(
     search_query: str,
     original_question: str,
@@ -862,29 +946,24 @@ class AgentRuntime:
             await _persist_assistant(thread_id, user_id, err_msg, {}, [], had_error=True)
             return {"answer": err_msg, "citations": [], "meta": {}, "thread_id": thread_id, "session_id": thread_id}
  
-        # ── 4. GATE ────────────────────────────────────────────────────────
-        avg_effective, gate_threshold, has_reranker = _compute_gate(results)
- 
+        # ── 4. CONFIDENCE TIER ─────────────────────────────────────────────
+        # 3-tier system replaces binary gate (Defect A — cold zone false
+        # negatives).  HIGH = answer normally; MEDIUM = answer with hedging
+        # framing OR refuse if context isn't clear; LOW = refuse outright.
+        confidence, avg_effective, gate_threshold = assess_confidence(results)
+
         if TRACE_MODE:
             logger.info(
-                "TRACE | thread=%s n_results=%d avg_effective=%.4f "
-                "gate=(>=%d results, >=%.3f) semantic_reranker=%s",
-                thread_id, len(results), avg_effective,
-                MIN_RESULTS, gate_threshold, has_reranker,
+                "TRACE | thread=%s n_results=%d avg=%.4f confidence=%s "
+                "(threshold=%.3f)",
+                thread_id, len(results), avg_effective, confidence, gate_threshold,
             )
- 
-        if len(results) < MIN_RESULTS or avg_effective < gate_threshold:
-            # Log the specific reason(s) for gate failure
-            reasons = []
-            if len(results) < MIN_RESULTS:
-                reasons.append(f"too_few_results({len(results)}<{MIN_RESULTS})")
-            if avg_effective < gate_threshold:
-                reasons.append(f"low_score({avg_effective:.4f}<{gate_threshold:.3f})")
+
+        if confidence == CONFIDENCE_LOW:
             logger.warning(
-                "Gate REJECTED | thread=%s reason=%s | n=%d avg=%.4f "
-                "threshold_n=%d threshold=%.3f reranker=%s query=%r",
-                thread_id, "+".join(reasons), len(results), avg_effective,
-                MIN_RESULTS, gate_threshold, has_reranker,
+                "Confidence LOW | thread=%s | n=%d avg=%.4f "
+                "(threshold=%.3f) query=%r",
+                thread_id, len(results), avg_effective, gate_threshold,
                 search_query_used[:120],
             )
             await _persist_assistant(thread_id, user_id, _INSUFFICIENT_EVIDENCE_MSG, {}, [])
@@ -895,12 +974,32 @@ class AgentRuntime:
                 "thread_id": thread_id,
                 "session_id": thread_id,
             }
- 
+        # HIGH or MEDIUM — proceed (MEDIUM with limited-evidence framing
+        # injected by step 6b below).
+
         # ── 5. AF session (cold-start hydration with before_sequence) ──────
         af_session = await _get_or_create_af_session(thread_id, user_id, user_msg)
- 
+
         # ── 6. Inject RAG results ──────────────────────────────────────────
         rag_provider.store_results(af_session, results)
+
+        # ── 6a. Limited-evidence note (MEDIUM tier only) ──────────────────
+        if confidence == CONFIDENCE_MEDIUM and hasattr(
+            rag_provider, "store_limited_evidence_note"
+        ):
+            try:
+                rag_provider.store_limited_evidence_note(
+                    af_session, _LIMITED_EVIDENCE_NOTE,
+                )
+                logger.info(
+                    "AgentRuntime: MEDIUM confidence — limited-evidence note "
+                    "injected | thread=%s avg=%.4f",
+                    thread_id, avg_effective,
+                )
+            except Exception:
+                logger.exception(
+                    "AgentRuntime: limited-evidence injection failed (non-fatal)",
+                )
 
         # ── 6b. Specificity-ambiguity disambiguation check ─────────────────
         # Defensive: if anything in the disambiguation logic fails, log and
@@ -1122,28 +1221,24 @@ class AgentRuntime:
             yield _sse_data("[DONE]")
             return
  
-        # ── 4. GATE ────────────────────────────────────────────────────────
-        avg_effective, gate_threshold, has_reranker = _compute_gate(results)
- 
+        # ── 4. CONFIDENCE TIER ─────────────────────────────────────────────
+        # 3-tier: HIGH = answer; MEDIUM = answer with hedging or refuse;
+        # LOW = refuse outright. See assess_confidence() for thresholds.
+        confidence, avg_effective, gate_threshold = assess_confidence(results)
+
         if TRACE_MODE:
             logger.info(
-                "TRACE | thread=%s n_results=%d avg_effective=%.4f "
-                "gate=(>=%d results, >=%.3f) semantic_reranker=%s",
-                thread_id, len(results), avg_effective,
-                MIN_RESULTS, gate_threshold, has_reranker,
+                "TRACE | thread=%s n_results=%d avg=%.4f confidence=%s "
+                "(threshold=%.3f)",
+                thread_id, len(results), avg_effective, confidence, gate_threshold,
             )
- 
-        if len(results) < MIN_RESULTS or avg_effective < gate_threshold:
-            reasons = []
-            if len(results) < MIN_RESULTS:
-                reasons.append(f"too_few_results({len(results)}<{MIN_RESULTS})")
-            if avg_effective < gate_threshold:
-                reasons.append(f"low_score({avg_effective:.4f}<{gate_threshold:.3f})")
+
+        if confidence == CONFIDENCE_LOW:
             logger.warning(
-                "Gate REJECTED | thread=%s reason=%s | n=%d avg=%.4f "
-                "threshold_n=%d threshold=%.3f reranker=%s query=%r",
-                thread_id, "+".join(reasons), len(results), avg_effective,
-                MIN_RESULTS, gate_threshold, has_reranker, search_query_used[:120],
+                "Confidence LOW | thread=%s | n=%d avg=%.4f "
+                "(threshold=%.3f) query=%r",
+                thread_id, len(results), avg_effective, gate_threshold,
+                search_query_used[:120],
             )
             await _persist_assistant(thread_id, user_id, _INSUFFICIENT_EVIDENCE_MSG, {}, [])
             yield _sse_data(_INSUFFICIENT_EVIDENCE_MSG)
@@ -1151,12 +1246,31 @@ class AgentRuntime:
             yield _sse_event("meta", json.dumps(meta, ensure_ascii=False))
             yield _sse_data("[DONE]")
             return
- 
+        # HIGH or MEDIUM — proceed.
+
         # ── 5. AF session (cold-start hydration with before_sequence) ──────
         af_session = await _get_or_create_af_session(thread_id, user_id, user_msg)
- 
+
         # ── 6. Inject RAG results ──────────────────────────────────────────
         rag_provider.store_results(af_session, results)
+
+        # ── 6a. Limited-evidence note (MEDIUM tier only) ──────────────────
+        if confidence == CONFIDENCE_MEDIUM and hasattr(
+            rag_provider, "store_limited_evidence_note"
+        ):
+            try:
+                rag_provider.store_limited_evidence_note(
+                    af_session, _LIMITED_EVIDENCE_NOTE,
+                )
+                logger.info(
+                    "AgentRuntime: MEDIUM confidence — limited-evidence note "
+                    "injected | thread=%s avg=%.4f",
+                    thread_id, avg_effective,
+                )
+            except Exception:
+                logger.exception(
+                    "AgentRuntime: limited-evidence injection failed (non-fatal)",
+                )
 
         # ── 6b. Specificity-ambiguity disambiguation check (defensive) ─────
         # Wrapped in try/except so any failure in disambiguation logic does

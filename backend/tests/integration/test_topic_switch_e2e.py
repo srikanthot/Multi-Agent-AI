@@ -178,13 +178,40 @@ class TestTopicSwitchEndToEnd:
         # Current behaviour: gate rejects, canned message shown
         assert "I don't have enough evidence" in result["answer"]
 
-    def test_gate_rejects_too_few_results(
+    def test_single_strong_chunk_proceeds_with_medium_confidence(
         self, runtime, session, identity,
         mock_buffer_response, mock_persist, mock_af_session,
     ):
-        """A single strong chunk fails because MIN_RESULTS=2."""
+        """A single strong chunk gets MEDIUM confidence — bot proceeds with
+        hedging framing instead of hard-refusing.
+
+        Behaviour change for Defect A (cold zone false negatives): we used
+        to refuse if len(results) < MIN_RESULTS, even with a high reranker
+        score. Now we proceed with a 'limited evidence' note injected so
+        the LLM either answers with hedging or refuses based on whether
+        the chunk actually contains the answer.
+        """
         single_chunk = [_result("strong but lonely", "M1", 3.5)]
         with patch.object(agent_module, "retrieve", return_value=single_chunk):
+            result = asyncio.run(
+                runtime.run_once("tell me about Vibratium", session, identity)
+            )
+        # MEDIUM tier — bot proceeds (no canned no-evidence message)
+        assert "I don't have enough evidence" not in result["answer"]
+        # The mock LLM returns its placeholder; real LLM would either
+        # answer with hedging or refuse based on chunk content.
+        assert result["answer"]
+
+    def test_low_confidence_results_refused(
+        self, runtime, session, identity,
+        mock_buffer_response, mock_persist, mock_af_session,
+    ):
+        """When all chunks are weak (below soft floor), still refuse."""
+        weak_chunks = [
+            _result("weak 1", "M1", 1.0),
+            _result("weak 2", "M2", 0.9),
+        ]
+        with patch.object(agent_module, "retrieve", return_value=weak_chunks):
             result = asyncio.run(
                 runtime.run_once("tell me about Vibratium", session, identity)
             )

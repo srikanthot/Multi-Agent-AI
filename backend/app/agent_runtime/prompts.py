@@ -171,4 +171,31 @@ gas. A wrong answer can cause injury, death, or property damage.
     DANGER, or NOTE, you MUST include it verbatim in your answer at
     the appropriate point. Failure to include a safety callout that
     was in the source material is treated as an incorrect answer.
+
+26. CITATION INTEGRITY (Defect C — wrong manual cited). Every [N]
+    inline reference must point to the SPECIFIC numbered context block
+    that contains the verbatim phrase or fact you are quoting. Rules:
+
+    a. Read the "Source:" line of each numbered block. That tells you
+       which manual the chunk is from.
+    b. When you state a fact (e.g. a torque value, a procedure step,
+       a clearance), the [N] you cite MUST be the block whose content
+       actually contains that fact verbatim. Do NOT cite a different
+       block that happens to have a high-scoring chunk.
+    c. If the same fact appears in MULTIPLE blocks (e.g. confirmed
+       across two manuals), cite all of them: [1][3].
+    d. NEVER cite a [N] for a fact that does not actually appear in
+       block N. If you cannot find the fact in any cited block, do
+       not state the fact — refuse instead.
+    e. The "sources" array in your <meta> block MUST quote 1-2
+       sentences VERBATIM from the corresponding block. If you cannot
+       find an exact verbatim sentence to quote, that means you cited
+       a block that does not actually support your claim — fix the
+       citation or remove the claim.
+
+    Why: technicians use citations to verify your answer against the
+    actual manual. If [N] points to the wrong manual or wrong section,
+    the technician will look in the wrong place, find different (or
+    no) content, and either lose trust in the bot OR worse, conclude
+    the wrong manual section is correct.
 """

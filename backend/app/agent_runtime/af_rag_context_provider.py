@@ -45,6 +45,14 @@ _CONDENSATION_MODE_KEY = "_rag_condensation_mode"
 # numbered context blocks so the LLM treats it as authoritative guidance
 # overriding any default behaviour.
 _DISAMBIGUATION_BLOCK_KEY = "_rag_disambiguation_block"
+
+# Holds a "limited evidence" note string. Populated by AgentRuntime when
+# retrieval produced borderline-confidence results (between the soft floor
+# and the strict gate). When set, it is appended after context blocks so
+# the LLM either answers with hedging OR explicitly refuses if the
+# chunks don't clearly answer the question. Critical for safety-critical
+# use: avoids confident-but-unsupported answers on weakly matched content.
+_LIMITED_EVIDENCE_KEY = "_rag_limited_evidence_note"
  
  
 class RagContextProvider(BaseContextProvider):
@@ -86,6 +94,23 @@ class RagContextProvider(BaseContextProvider):
         """
         if block:
             session.state[_DISAMBIGUATION_BLOCK_KEY] = block
+
+    def store_limited_evidence_note(
+        self, session: AgentSession, note: str,
+    ) -> None:
+        """Attach a 'limited evidence' note for this turn.
+
+        Called by AgentRuntime when retrieval produced MEDIUM-tier results
+        (borderline relevance — between the soft floor and the strict gate).
+        When set, the note is appended after the numbered context blocks
+        so the LLM either provides an answer with explicit hedging OR
+        refuses if the chunks don't clearly answer the question.
+
+        Critical for safety: avoids confident-but-unsupported answers on
+        weakly matched content where the bot might otherwise improvise.
+        """
+        if note:
+            session.state[_LIMITED_EVIDENCE_KEY] = note
 
     async def before_run(
         self,
@@ -150,9 +175,10 @@ class RagContextProvider(BaseContextProvider):
             )
             return
  
-        # Pull disambiguation block (if any) and pop it so it never leaks
-        # across turns regardless of whether we have results.
+        # Pull turn-specific override blocks (and pop so they never leak
+        # across turns regardless of whether we have results).
         disambiguation_block: str = session.state.pop(_DISAMBIGUATION_BLOCK_KEY, "")
+        limited_evidence_note: str = session.state.pop(_LIMITED_EVIDENCE_KEY, "")
 
         if not results:
             return
@@ -167,12 +193,15 @@ class RagContextProvider(BaseContextProvider):
             "Reference each source by its [N] label inline."
         )
 
+        # Build turn-specific override sections in priority order:
+        #   1. Disambiguation (highest priority — bot must ASK, not answer)
+        #   2. Limited-evidence note (bot may answer with hedging or refuse)
+        # Both blocks are appended AFTER the numbered context blocks so the
+        # LLM treats them as authoritative overrides for THIS turn.
+        override_sections: list[str] = []
+
         if disambiguation_block:
-            # Append AFTER the numbered context blocks so the LLM treats
-            # the disambiguation guidance as authoritative for THIS turn,
-            # overriding the default "answer the question" behaviour.
-            instruction = (
-                f"{base_instruction}\n\n"
+            override_sections.append(
                 "═══ TURN-SPECIFIC DISAMBIGUATION GUIDANCE ═══\n"
                 f"{disambiguation_block}\n"
                 "═══════════════════════════════════════════════"
@@ -181,6 +210,20 @@ class RagContextProvider(BaseContextProvider):
                 "RagContextProvider: disambiguation block injected — chunks "
                 "span multiple specifics not named in the question"
             )
+
+        if limited_evidence_note:
+            override_sections.append(
+                "═══ TURN-SPECIFIC EVIDENCE-CONFIDENCE GUIDANCE ═══\n"
+                f"{limited_evidence_note}\n"
+                "═══════════════════════════════════════════════════"
+            )
+            logger.info(
+                "RagContextProvider: limited-evidence note injected — "
+                "retrieval scored MEDIUM tier (borderline relevance)"
+            )
+
+        if override_sections:
+            instruction = base_instruction + "\n\n" + "\n\n".join(override_sections)
         else:
             instruction = base_instruction
 

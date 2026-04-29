@@ -61,6 +61,66 @@ _REWRITE_SYSTEM = (
 _client: AzureOpenAI | None = None
 
 
+# ---------------------------------------------------------------------------
+# Rewriter output cache — addresses Defects E / F (non-determinism).
+# ---------------------------------------------------------------------------
+# Same question + same recent-history => same rewritten query => same retrieval
+# => same answer. Per-process LRU. Keyed by hash of (question + history-text).
+# Process-local: if backend restarts, cache is empty. That is intentional —
+# the cache is a stability optimisation, not a permanent store.
+import hashlib  # noqa: E402  (placed here to keep cache code grouped)
+from collections import OrderedDict  # noqa: E402
+
+_REWRITE_CACHE: OrderedDict[str, str] = OrderedDict()
+_REWRITE_CACHE_MAX_SIZE = 500
+
+
+def _hash_history_for_cache(history: list, max_chars: int) -> str:
+    """Produce a stable hash of the relevant history for cache keying.
+
+    Uses up to `max_chars` of the most recent history (matching what the
+    rewriter LLM actually sees) so that older messages outside the window
+    don't invalidate the cache.
+    """
+    parts: list[str] = []
+    total = 0
+    for msg in reversed(history or []):
+        role = "U" if getattr(msg, "role", "") == "user" else "A"
+        content = getattr(msg, "content", "") or ""
+        if len(content) > 400:
+            content = content[:397] + "..."
+        line = f"{role}:{content}"
+        if total + len(line) > max_chars:
+            break
+        parts.insert(0, line)
+        total += len(line)
+    return hashlib.sha1(("\x1f".join(parts)).encode("utf-8")).hexdigest()
+
+
+def _cache_get(question: str, history: list, max_chars: int) -> str | None:
+    key = _hash_history_for_cache(history, max_chars) + "|" + question.strip().lower()
+    if key in _REWRITE_CACHE:
+        # LRU: move to end (most recently used)
+        value = _REWRITE_CACHE.pop(key)
+        _REWRITE_CACHE[key] = value
+        return value
+    return None
+
+
+def _cache_put(question: str, history: list, max_chars: int, rewritten: str) -> None:
+    key = _hash_history_for_cache(history, max_chars) + "|" + question.strip().lower()
+    if key in _REWRITE_CACHE:
+        _REWRITE_CACHE.pop(key)
+    _REWRITE_CACHE[key] = rewritten
+    while len(_REWRITE_CACHE) > _REWRITE_CACHE_MAX_SIZE:
+        _REWRITE_CACHE.popitem(last=False)  # evict LRU
+
+
+def _cache_clear() -> None:
+    """For tests."""
+    _REWRITE_CACHE.clear()
+
+
 # Stopwords used by _is_already_standalone to identify content-bearing words.
 # Kept separate from the validator's _STOPWORDS so the two heuristics can
 # evolve independently without coupling failures.
@@ -238,12 +298,20 @@ def rewrite_query(
     # No history → nothing to contextualize
     if not history:
         return question
- 
+
     # Skip the LLM call only for clearly self-contained technical questions
     if _is_already_standalone(question):
         if TRACE_MODE:
             logger.info("TRACE | query_rewrite: skipped (standalone) %r", question)
         return question
+
+    # Cache lookup — same question + same recent-history -> return prior
+    # rewritten query so retrieval is stable across runs (Defects E / F).
+    cached = _cache_get(question, history, max_history_chars)
+    if cached is not None:
+        if TRACE_MODE:
+            logger.info("TRACE | query_rewrite: cache HIT %r -> %r", question, cached)
+        return cached
  
     # Build a compact history summary for the rewrite prompt
     lines: list[str] = []
@@ -291,6 +359,8 @@ def rewrite_query(
                 logger.info(
                     "TRACE | query_rewrite: %r → %r", question, rewritten
                 )
+            # Cache the validated rewrite for stability across runs
+            _cache_put(question, history, max_history_chars, rewritten)
             return rewritten
         else:
             if TRACE_MODE:
